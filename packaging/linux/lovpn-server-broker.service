@@ -1,0 +1,49 @@
+[Unit]
+Description=LoVPN server broker (privileged network applier)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+# State is owned by the unprivileged lovpn-server user; this root-owned broker is the
+# only process that touches interfaces, nftables and forwarding. It reads that state
+# read-only and keeps its own anti-rollback record in /var/lib/lovpn-broker.
+ExecStart=/usr/local/bin/lovpn-server --state-dir /var/lib/lovpn-server --socket /run/lovpn-server/broker.sock broker --owner-user lovpn-server --broker-dir /var/lib/lovpn-broker
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=lovpn-server
+RuntimeDirectoryMode=0755
+UMask=0077
+
+# Least privilege. CAP_NET_ADMIN: WireGuard link, addresses, nftables, sysctl.
+# CAP_DAC_READ_SEARCH: read the 0700 state directory of the service user.
+# CAP_CHOWN: hand the socket to that user. No other capability is kept.
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_CHOWN
+AmbientCapabilities=
+
+ProtectSystem=strict
+ReadWritePaths=/var/lib/lovpn-broker
+ReadOnlyPaths=/var/lib/lovpn-server
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+# ProtectKernelTunables is intentionally NOT set: the broker must write
+# /proc/sys/net/ipv4/ip_forward (and restores it on teardown).
+# PrivateNetwork is intentionally NOT set: the broker manages host networking.
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

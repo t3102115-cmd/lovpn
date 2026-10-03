@@ -1,0 +1,34 @@
+[package]
+name = "lovpn-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "lovpn_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lovpn-server"
+path = "src/main.rs"
+
+[dependencies]
+zeroize.workspace = true
+clap.workspace = true
+ipnet.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+lovpn-config = { path = "../lovpn-config", version = "=0.1.0-dev.1" }
+lovpn-firewall = { path = "../lovpn-firewall", version = "=0.1.0-dev.1" }
+lovpn-keys = { path = "../lovpn-keys", version = "=0.1.0-dev.1" }
+
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,24 @@
+[graph]
+targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+all-features = true
+
+[advisories]
+version = 2
+ignore = []
+yanked = "deny"
+unmaintained = "all"
+
+[licenses]
+version = 2
+confidence-threshold = 0.95
+allow = ["MIT", "Apache-2.0", "Unicode-3.0", "BSD-3-Clause"]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

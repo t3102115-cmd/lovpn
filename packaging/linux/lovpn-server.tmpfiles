@@ -1,0 +1,4 @@
+# State owned by the service user; broker record is root-only so the service user
+# cannot reset the anti-rollback counter.
+d /var/lib/lovpn-server 0700 lovpn-server lovpn-server -
+d /var/lib/lovpn-broker 0700 root root -

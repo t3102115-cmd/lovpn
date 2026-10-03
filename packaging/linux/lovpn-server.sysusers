@@ -1,0 +1,2 @@
+# Dedicated, unprivileged account that owns LoVPN server state and runs the CLI.
+u lovpn-server - "LoVPN server state owner" /var/lib/lovpn-server /usr/sbin/nologin

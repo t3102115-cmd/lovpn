@@ -1,0 +1,22 @@
+# Public, synthetic laboratory profile. Not enrollment, not a working server.
+# This sample key is test data; never use it as a real server identity.
+schema_version = 1
+
+[profile]
+name = "My Home Server"
+endpoint = "192.0.2.1:51820"
+server_public_key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
+
+[tunnel]
+interface = "lovpn0"
+addresses = ["10.66.0.2/32"]
+mtu = 1380
+routing = "full"
+routes = ["0.0.0.0/0"]
+ipv6 = "block"
+
+[dns]
+servers = ["10.66.0.1"]
+
+[firewall]
+kill_switch = "strict"
