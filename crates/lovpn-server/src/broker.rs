@@ -17,21 +17,17 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use lovpn_sys::ipc;
 use std::{
-    io::{BufRead, BufReader, Read, Write},
-    os::unix::{
-        fs::{FileTypeExt, PermissionsExt},
-        net::{UnixListener, UnixStream},
-    },
+    os::unix::net::{UnixListener, UnixStream},
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 pub const MAX_REQUEST_BYTES: u64 = 4096;
 pub const MAX_RESPONSE_BYTES: u64 = 256 * 1024;
 pub const DEFAULT_SOCKET: &str = "/run/lovpn-server/broker.sock";
-const IO_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -136,42 +132,23 @@ impl std::fmt::Display for BrokerError {
 
 impl std::error::Error for BrokerError {}
 
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
+impl From<ipc::BindError> for BrokerError {
+    fn from(error: ipc::BindError) -> Self {
+        match error {
+            ipc::BindError::AlreadyRunning => Self::AlreadyRunning,
+            ipc::BindError::Socket => Self::Socket,
+        }
+    }
 }
 
 /// Structured, sanitized log line: no payloads, keys, paths or peer data.
 fn log(event: &str, op: Option<Op>, uid: Option<u32>, code: &str) {
-    let line = json!({"ts": now(), "event": event, "op": op, "uid": uid, "code": code});
-    let _ = writeln!(std::io::stderr().lock(), "{line}");
+    ipc::log(json!({"ts": ipc::unix_now(), "event": event, "op": op, "uid": uid, "code": code}));
 }
 
 impl Broker {
     pub fn bind(config: BrokerConfig, runner: Arc<dyn Runner>) -> Result<Self, BrokerError> {
-        let path = &config.socket;
-        if let Ok(meta) = std::fs::symlink_metadata(path) {
-            if !meta.file_type().is_socket() {
-                return Err(BrokerError::Socket);
-            }
-            if UnixStream::connect(path).is_ok() {
-                return Err(BrokerError::AlreadyRunning);
-            }
-            std::fs::remove_file(path).map_err(|_| BrokerError::Socket)?;
-        }
-        let listener = UnixListener::bind(path).map_err(|_| BrokerError::Socket)?;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-            .map_err(|_| BrokerError::Socket)?;
-        let privileged = rustix::process::geteuid().is_root();
-        let chowned = rustix::fs::chown(
-            path,
-            Some(rustix::process::Uid::from_raw(config.owner_uid)),
-            None,
-        );
-        if chowned.is_err() && privileged {
-            return Err(BrokerError::Socket);
-        }
+        let listener = ipc::bind(&config.socket, config.owner_uid)?;
         Ok(Self {
             config,
             runner,
@@ -195,9 +172,9 @@ impl Broker {
     }
 
     fn handle(&self, stream: UnixStream) {
-        let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
-        let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
-        let Ok(cred) = rustix::net::sockopt::socket_peercred(&stream) else {
+        let _ = stream.set_read_timeout(Some(ipc::IO_TIMEOUT));
+        let _ = stream.set_write_timeout(Some(ipc::IO_TIMEOUT));
+        let Some(uid) = ipc::peer_uid(&stream) else {
             log(
                 "peer-credentials-unavailable",
                 None,
@@ -206,7 +183,6 @@ impl Broker {
             );
             return;
         };
-        let uid = cred.uid.as_raw();
         let response = match read_request(&stream) {
             Err(code) => {
                 log("request-rejected", None, Some(uid), code);
@@ -225,10 +201,7 @@ impl Broker {
                 response
             }
         };
-        if let Ok(mut line) = serde_json::to_vec(&response) {
-            line.push(b'\n');
-            let _ = (&stream).write_all(&line);
-        }
+        ipc::write_json(&stream, &response);
     }
 
     fn dispatch(&self, request: &Request) -> Response {

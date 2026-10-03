@@ -22,6 +22,7 @@ serde.workspace = true
 serde_json.workspace = true
 lovpn-config = { path = "../lovpn-config", version = "=0.1.0-dev.1" }
 lovpn-firewall = { path = "../lovpn-firewall", version = "=0.1.0-dev.1" }
+lovpn-sys = { path = "../lovpn-sys", version = "=0.1.0-dev.1" }
 lovpn-keys = { path = "../lovpn-keys", version = "=0.1.0-dev.1" }
 
 [target.'cfg(unix)'.dependencies]

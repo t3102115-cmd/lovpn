@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/lovpn-config",
     "crates/lovpn-keys",
+    "crates/lovpn-sys",
     "crates/lovpn-firewall",
     "crates/lovpn-server",
     "crates/lovpn-cli",
