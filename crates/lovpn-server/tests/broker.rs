@@ -5,8 +5,8 @@ use lovpn_keys::{ClientPrivateKey, ServerPrivateKey};
 use lovpn_server::{
     ServerError, ServerState, SetupParams, Store,
     applier::{
-        Applier, ApplyError, Cmd, CmdOutput, Program, Runner, TableState, classify_table,
-        parse_addresses, parse_link,
+        Applier, ApplyError, Cmd, CmdOutput, ExecError, Program, Runner, TableState,
+        classify_table, parse_addresses, parse_link,
     },
     broker::{self, Broker, BrokerConfig, BrokerError, Op, Request},
 };
@@ -55,7 +55,7 @@ impl Fake {
     }
 }
 
-fn out(success: bool, stdout: impl Into<String>) -> Result<CmdOutput, ApplyError> {
+fn out(success: bool, stdout: impl Into<String>) -> Result<CmdOutput, ExecError> {
     Ok(CmdOutput {
         success,
         stdout: stdout.into(),
@@ -63,7 +63,7 @@ fn out(success: bool, stdout: impl Into<String>) -> Result<CmdOutput, ApplyError
 }
 
 impl Runner for Fake {
-    fn run(&self, cmd: &Cmd, step: &'static str) -> Result<CmdOutput, ApplyError> {
+    fn run(&self, cmd: &Cmd, step: &'static str) -> Result<CmdOutput, ExecError> {
         let mut host = self.0.lock().unwrap();
         let args: Vec<&str> = cmd.args.iter().map(String::as_str).collect();
         let line = format!("{:?} {}", cmd.program, args.join(" ")).to_lowercase();

@@ -15,9 +15,9 @@ use crate::{
     ServerError, Store,
     applier::{Applier, ApplyError, DEFAULT_IP_FORWARD, Runner},
 };
+use lovpn_sys::ipc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use lovpn_sys::ipc;
 use std::{
     os::unix::net::{UnixListener, UnixStream},
     path::{Path, PathBuf},
@@ -247,45 +247,16 @@ impl Broker {
 }
 
 fn read_request(stream: &UnixStream) -> Result<Request, &'static str> {
-    let mut line = Vec::new();
-    BufReader::new(stream.take(MAX_REQUEST_BYTES + 1))
-        .read_until(b'\n', &mut line)
-        .map_err(|_| "request.io")?;
-    if line.len() as u64 > MAX_REQUEST_BYTES {
-        return Err("request.too-large");
-    }
+    let line = ipc::read_line(stream, MAX_REQUEST_BYTES).map_err(ipc::ReadError::code)?;
     serde_json::from_slice(&line).map_err(|_| "request.malformed")
 }
 
 /// Send one request to a broker and read its reply. Used by `lovpn-server`.
 pub fn call(socket: &Path, request: &Request, timeout: Duration) -> Result<Response, ServerError> {
-    let stream = UnixStream::connect(socket).map_err(|_| ServerError::Unsupported)?;
-    stream
-        .set_read_timeout(Some(timeout))
-        .map_err(|_| ServerError::Storage)?;
-    stream
-        .set_write_timeout(Some(IO_TIMEOUT))
-        .map_err(|_| ServerError::Storage)?;
-    let mut line = serde_json::to_vec(request).map_err(|_| ServerError::Storage)?;
-    line.push(b'\n');
-    (&stream)
-        .write_all(&line)
-        .map_err(|_| ServerError::Storage)?;
-    let mut reply = Vec::new();
-    BufReader::new((&stream).take(MAX_RESPONSE_BYTES + 1))
-        .read_until(b'\n', &mut reply)
-        .map_err(|_| ServerError::Storage)?;
-    if reply.len() as u64 > MAX_RESPONSE_BYTES {
-        return Err(ServerError::Storage);
-    }
-    serde_json::from_slice(&reply).map_err(|_| ServerError::Storage)
-}
-
-/// Resolve a user name from `/etc/passwd` (no NSS, no network lookups).
-pub fn resolve_user(name: &str) -> Option<u32> {
-    let passwd = std::fs::read_to_string("/etc/passwd").ok()?;
-    passwd.lines().find_map(|line| {
-        let mut fields = line.split(':');
-        (fields.next() == Some(name)).then(|| fields.nth(1).and_then(|uid| uid.parse().ok()))?
+    ipc::call(socket, request, timeout, MAX_RESPONSE_BYTES).map_err(|error| match error {
+        ipc::CallError::Unreachable => ServerError::Unsupported,
+        ipc::CallError::Io => ServerError::Storage,
     })
 }
+
+pub use lovpn_sys::ipc::resolve_user;

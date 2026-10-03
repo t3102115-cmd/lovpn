@@ -5,6 +5,9 @@ use std::{error::Error, fmt};
 pub mod server;
 
 pub const TABLE_NAME: &str = "lovpn_client";
+/// Ownership marker carried in every LoVPN-installed table comment (client and server),
+/// followed by ` gen=<generation>`. A same-named table without it is foreign.
+pub const OWNER_COMMENT: &str = "lovpn-owned";
 pub const WIREGUARD_FWMARK: u32 = 0x4c6f;
 
 pub struct FirewallPlan {
@@ -61,6 +64,25 @@ impl Error for FirewallError {}
 /// table ownership, set WireGuard's socket mark, serialize generations, and apply
 /// the whole batch atomically. Interface-name matching is not link authentication.
 pub fn compile(config: &ClientConfig) -> Result<FirewallPlan, FirewallError> {
+    build(config, TableHeader::Preview)
+}
+
+/// Like [`compile`], but the table is created atomically with an ownership comment
+/// stamped with `generation`, so an installed policy can later be recognized as LoVPN's
+/// and its generation observed. Used by the client broker.
+pub fn compile_owned(
+    config: &ClientConfig,
+    generation: u64,
+) -> Result<FirewallPlan, FirewallError> {
+    build(config, TableHeader::Owned(generation))
+}
+
+enum TableHeader {
+    Preview,
+    Owned(u64),
+}
+
+fn build(config: &ClientConfig, header: TableHeader) -> Result<FirewallPlan, FirewallError> {
     config
         .validate()
         .map_err(|_| FirewallError::InvalidConfig)?;
@@ -74,12 +96,30 @@ pub fn compile(config: &ClientConfig) -> Result<FirewallPlan, FirewallError> {
         return Err(FirewallError::Ipv6UnderlayUnsupported);
     }
 
+    let banner = match header {
+        TableHeader::Preview => {
+            "# LoVPN laboratory preview ONLY: not installed, not verified protection.\n\
+             # A broker must verify table/link ownership and apply this whole batch."
+        }
+        TableHeader::Owned(_) => {
+            "# LoVPN client kill-switch policy, installed by the broker as one atomic batch.\n\
+             # Observed state, not this text, decides whether it is protecting."
+        }
+    };
+    let table_header = match header {
+        TableHeader::Preview => {
+            format!("add table inet {TABLE_NAME}\nflush table inet {TABLE_NAME}\n")
+        }
+        TableHeader::Owned(generation) => format!(
+            "add table inet {TABLE_NAME}\ndelete table inet {TABLE_NAME}\nadd table inet {TABLE_NAME} {{ comment \"{OWNER_COMMENT} gen={generation}\"; }}\n"
+        ),
+    };
     let mut rules = format!(
-        "# LoVPN laboratory preview ONLY: not installed, not verified protection.\n\
-         # A future broker must verify table/link ownership and apply this whole batch.\n\
-         # WireGuard must use fwmark {WIREGUARD_FWMARK:#x}; no DHCP/NDP/LAN exceptions.\n\
-         add table inet {TABLE_NAME}\n\
-         flush table inet {TABLE_NAME}\n\
+        "{banner}\n\
+         # WireGuard must use fwmark {WIREGUARD_FWMARK:#x}. Only exceptions besides the tunnel,\n\
+         # the marked endpoint flow and loopback: IPv4 DHCP client traffic (udp 68 -> 67), so\n\
+         # the uplink lease can renew. No LAN, NDP or other exceptions.\n\
+         {table_header}\
          add chain inet {TABLE_NAME} output {{ type filter hook output priority -150; policy drop; }}\n\
          add chain inet {TABLE_NAME} forward {{ type filter hook forward priority -150; policy drop; }}\n\
          add rule inet {TABLE_NAME} output oifname \"lo\" counter accept\n"
@@ -92,6 +132,9 @@ pub fn compile(config: &ClientConfig) -> Result<FirewallPlan, FirewallError> {
     rules.push_str(&format!(
         "add rule inet {TABLE_NAME} output meta mark {WIREGUARD_FWMARK:#x} ip daddr {} udp dport {} counter accept\n",
         config.profile.endpoint.ip(), config.profile.endpoint.port()
+    ));
+    rules.push_str(&format!(
+        "add rule inet {TABLE_NAME} output meta nfproto ipv4 udp sport 68 udp dport 67 counter accept\n"
     ));
     let family = if config.tunnel.ipv6 == Ipv6Mode::Block {
         "meta nfproto ipv4 "

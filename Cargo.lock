@@ -305,10 +305,21 @@ dependencies = [
  "lovpn-config",
  "lovpn-firewall",
  "lovpn-keys",
+ "lovpn-sys",
  "rustix",
  "serde",
  "serde_json",
  "tempfile",
+ "zeroize",
+]
+
+[[package]]
+name = "lovpn-sys"
+version = "0.1.0-dev.1"
+dependencies = [
+ "rustix",
+ "serde",
+ "serde_json",
  "zeroize",
 ]
 

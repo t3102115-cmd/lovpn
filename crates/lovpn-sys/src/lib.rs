@@ -8,5 +8,6 @@
 //! Nothing here knows about VPN policy: callers decide which commands to run.
 #[cfg(unix)]
 pub mod exec;
+pub mod inspect;
 #[cfg(unix)]
 pub mod ipc;

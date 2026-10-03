@@ -104,8 +104,12 @@ pub fn call<Q: Serialize, R: DeserializeOwned>(
     max_response: u64,
 ) -> Result<R, CallError> {
     let stream = UnixStream::connect(socket).map_err(|_| CallError::Unreachable)?;
-    stream.set_read_timeout(Some(timeout)).map_err(|_| CallError::Io)?;
-    stream.set_write_timeout(Some(IO_TIMEOUT)).map_err(|_| CallError::Io)?;
+    stream
+        .set_read_timeout(Some(timeout))
+        .map_err(|_| CallError::Io)?;
+    stream
+        .set_write_timeout(Some(IO_TIMEOUT))
+        .map_err(|_| CallError::Io)?;
     let mut line = serde_json::to_vec(request).map_err(|_| CallError::Io)?;
     line.push(b'\n');
     (&stream).write_all(&line).map_err(|_| CallError::Io)?;
@@ -129,4 +133,13 @@ pub fn unix_now() -> u64 {
 /// Structured, sanitized log line (JSON to stderr, captured by journald).
 pub fn log(fields: serde_json::Value) {
     let _ = writeln!(std::io::stderr().lock(), "{fields}");
+}
+
+/// Resolve a user name from `/etc/passwd` (no NSS, no network lookups).
+pub fn resolve_user(name: &str) -> Option<u32> {
+    let passwd = std::fs::read_to_string("/etc/passwd").ok()?;
+    passwd.lines().find_map(|line| {
+        let mut fields = line.split(':');
+        (fields.next() == Some(name)).then(|| fields.nth(1).and_then(|uid| uid.parse().ok()))?
+    })
 }

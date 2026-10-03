@@ -10,9 +10,7 @@ use std::{error::Error, fmt, net::Ipv4Addr};
 pub const FILTER_TABLE: &str = "lovpn_server";
 pub const NAT_TABLE: &str = "lovpn_server_nat";
 pub const MAX_LEASES: usize = 1024;
-/// Every LoVPN server table carries this comment prefix plus ` gen=<generation>`.
-/// A table without it is foreign and must never be modified or deleted.
-pub const OWNER_COMMENT: &str = "lovpn-owned";
+pub use crate::OWNER_COMMENT;
 
 #[derive(Clone, Debug)]
 pub struct ServerPolicy {

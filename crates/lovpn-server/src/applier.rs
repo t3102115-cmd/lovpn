@@ -12,9 +12,9 @@
 use crate::{ServerError, ServerState};
 use lovpn_firewall::server::{FILTER_TABLE, NAT_TABLE, OWNER_COMMENT};
 use lovpn_keys::ServerPrivateKey;
+pub use lovpn_sys::exec::{Cmd, CmdOutput, ExecError, Program, Runner, SystemRunner};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-pub use lovpn_sys::exec::{Cmd, CmdOutput, ExecError, Program, Runner, SystemRunner};
 use std::{
     collections::BTreeSet,
     fs::OpenOptions,
@@ -162,34 +162,11 @@ fn run_ok_stdin(
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TableState {
-    Absent,
-    Foreign,
-    Owned { generation: Option<u64> },
-}
+pub use lovpn_sys::inspect::{LinkObservation, TableState, parse_addresses, parse_link};
 
-/// Classify `nft list table` output. Pure and unit-tested.
+/// Classify `nft list table` output against LoVPN's ownership marker.
 pub fn classify_table(success: bool, listing: &str) -> TableState {
-    if !success {
-        return TableState::Absent;
-    }
-    for line in listing.lines() {
-        let line = line.trim();
-        let text = line
-            .strip_prefix("comment \"")
-            .and_then(|rest| rest.strip_suffix('"'));
-        if let Some(text) = text
-            && (text == OWNER_COMMENT || text.starts_with(&format!("{OWNER_COMMENT} ")))
-        {
-            let generation = text
-                .split_whitespace()
-                .find_map(|word| word.strip_prefix("gen="))
-                .and_then(|value| value.parse().ok());
-            return TableState::Owned { generation };
-        }
-    }
-    TableState::Foreign
+    lovpn_sys::inspect::classify_table(success, listing, OWNER_COMMENT)
 }
 
 fn table_state(runner: &dyn Runner, family: &str, name: &str) -> Result<TableState, ApplyError> {
@@ -200,47 +177,6 @@ fn table_state(runner: &dyn Runner, family: &str, name: &str) -> Result<TableSta
     };
     let out = runner.run(&cmd, "inspect-firewall")?;
     Ok(classify_table(out.success, &out.stdout))
-}
-
-#[derive(Debug, Default, Eq, PartialEq)]
-pub struct LinkObservation {
-    pub present: bool,
-    pub wireguard: bool,
-    pub mtu: Option<u32>,
-    pub up: bool,
-}
-
-pub fn parse_link(success: bool, json: &str) -> LinkObservation {
-    if !success {
-        return LinkObservation::default();
-    }
-    let Ok(Value::Array(items)) = serde_json::from_str::<Value>(json) else {
-        return LinkObservation::default();
-    };
-    let Some(link) = items.first() else {
-        return LinkObservation::default();
-    };
-    LinkObservation {
-        present: true,
-        wireguard: link["linkinfo"]["info_kind"] == "wireguard",
-        mtu: link["mtu"].as_u64().and_then(|v| u32::try_from(v).ok()),
-        up: link["flags"]
-            .as_array()
-            .is_some_and(|flags| flags.iter().any(|f| f == "UP")),
-    }
-}
-
-/// `(local address, prefix length)` pairs of IPv4 addresses on a link.
-pub fn parse_addresses(json: &str) -> Vec<(String, u64)> {
-    let Ok(Value::Array(items)) = serde_json::from_str::<Value>(json) else {
-        return Vec::new();
-    };
-    items
-        .iter()
-        .flat_map(|link| link["addr_info"].as_array().cloned().unwrap_or_default())
-        .filter(|a| a["family"] == "inet")
-        .filter_map(|a| Some((a["local"].as_str()?.to_string(), a["prefixlen"].as_u64()?)))
-        .collect()
 }
 
 fn observe_link(runner: &dyn Runner, interface: &str) -> Result<LinkObservation, ApplyError> {
