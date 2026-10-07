@@ -1,0 +1,62 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="LoVPN" Manufacturer="LoVPN" Version="$(var.Version)" UpgradeCode="BF421991-3830-485A-B38A-31B48F788D61" Scope="perMachine" InstallerVersion="500">
+    <!-- Early removal is inside the transaction: old product restored on rollback. -->
+    <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="A newer LoVPN is already installed." AllowSameVersionUpgrades="no" />
+    <MediaTemplate EmbedCab="yes" />
+    <Launch Condition="Installed OR WIX_UPGRADE_DETECTED OR UserSID" Message="First install requires an interactive installing identity." />
+    <Property Id="MANAGED_SCHEMA">
+      <RegistrySearch Id="ManagedSchema" Root="HKLM" Key="Software\LoVPN\Installer" Name="RecordSchema" Type="raw" Bitness="always64" />
+    </Property>
+    <Property Id="EXISTING_SERVICE">
+      <RegistrySearch Id="ExistingService" Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\LoVPNClient" Name="ImagePath" Type="raw" />
+    </Property>
+    <Launch Condition="NOT WIX_UPGRADE_DETECTED OR MANAGED_SCHEMA = &quot;2&quot;" Message="Historical MSI rollback is incompatible with NRPT record v2. Upgrade refused; use reviewed manual migration." />
+    <Launch Condition="NOT EXISTING_SERVICE OR MANAGED_SCHEMA = &quot;2&quot;" Message="Unmanaged or historical LoVPN service: installation refused." />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="LoVPN">
+        <Component Id="ServiceComponent" Guid="B9BA1B4D-726A-4CD3-A28B-0F6F02C8AA23" Bitness="always64">
+          <File Id="ServiceExe" Source="$(var.SourceDir)\lovpn-service.exe" KeyPath="yes" />
+          <ServiceInstall Id="InstallService" Name="LoVPNClient" DisplayName="LoVPN Client" Type="ownProcess" Start="demand" ErrorControl="normal" Account="LocalSystem" Arguments="service">
+            <util:ServiceConfig FirstFailureActionType="none" SecondFailureActionType="none" ThirdFailureActionType="none" ResetPeriodInDays="1" />
+          </ServiceInstall>
+          <ServiceControl Id="ControlService" Name="LoVPNClient" Stop="both" Remove="uninstall" Wait="yes" />
+        </Component>
+        <Component Id="CliComponent" Guid="F8FC9F38-6955-439A-9718-9C2F0A4CA8D2" Bitness="always64">
+          <File Id="CliExe" Source="$(var.SourceDir)\lovpn.exe" KeyPath="yes" />
+          <Environment Id="MachinePath" Name="PATH" Value="[INSTALLFOLDER]" Permanent="no" Part="last" Action="set" System="yes" />
+        </Component>
+        <Component Id="UiComponent" Guid="BC59C73C-067D-4615-B209-4CFF80D7B59F" Bitness="always64">
+          <File Id="UiExe" Source="$(var.SourceDir)\lovpn-ui.exe" KeyPath="yes" />
+        </Component>
+        <Component Id="DriverComponent" Guid="39EC814B-19C5-49EE-B23F-6A663AB44D27" Bitness="always64">
+          <File Id="DriverDll" Source="$(var.DriverDll)" Name="wireguard.dll" KeyPath="yes" />
+        </Component>
+        <Component Id="LicenseComponent" Guid="21797443-D6A1-4839-A024-37C578378A77" Bitness="always64">
+          <File Source="WIREGUARD-NT-LICENSE.txt" KeyPath="yes" />
+          <File Source="Initialize-State.ps1" />
+          <File Source="$(var.Manifest)" Name="compatibility.json" />
+        </Component>
+        <Component Id="CompatibilityMarker" Guid="15BDC284-64A6-4D63-BDD9-14E145FF9ACB" Bitness="always64">
+          <RegistryValue Root="HKLM" Key="Software\LoVPN\Installer" Name="RecordSchema" Type="string" Value="2" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <!-- Immediate formatting supplies UserSID through CustomActionData, not deferred property access. -->
+    <SetProperty Id="InitializeState" Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]Initialize-State.ps1&quot; -OwnerSid &quot;[UserSID]&quot;" Before="InitializeState" Sequence="execute" Condition="NOT Installed AND NOT WIX_UPGRADE_DETECTED" />
+    <CustomAction Id="InitializeState" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec" Execute="deferred" Impersonate="no" Return="check" />
+    <?ifdef TestHooks ?>
+    <!-- Never included in release MSI; fails after service start in the execution script. -->
+    <Property Id="LOVPN_TEST_FAIL" Secure="yes" />
+    <CustomAction Id="TestFail" Directory="System64Folder" ExeCommand="&quot;[System64Folder]cmd.exe&quot; /c exit 1" Execute="deferred" Impersonate="no" Return="check" />
+    <?endif ?>
+    <InstallExecuteSequence>
+      <Custom Action="InitializeState" After="InstallFiles" Condition="NOT Installed AND NOT WIX_UPGRADE_DETECTED" />
+      <?ifdef TestHooks ?>
+      <Custom Action="TestFail" After="StartServices" Condition="LOVPN_TEST_FAIL = 1 AND NOT REMOVE" />
+      <?endif ?>
+    </InstallExecuteSequence>
+    <Feature Id="Client" Title="LoVPN Client">
+      <ComponentRef Id="ServiceComponent" /><ComponentRef Id="CliComponent" /><ComponentRef Id="UiComponent" /><ComponentRef Id="DriverComponent" /><ComponentRef Id="LicenseComponent" /><ComponentRef Id="CompatibilityMarker" />
+    </Feature>
+  </Package>
+</Wix>

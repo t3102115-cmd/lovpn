@@ -1,0 +1,22 @@
+[package]
+name = "lovpn-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "LoVPN window: a loopback-only local web app over the same service channel as the CLI."
+
+[[bin]]
+name = "lovpn-ui"
+path = "src/main.rs"
+
+[dependencies]
+getrandom.workspace = true
+lovpn-client = { path = "../lovpn-client", version = "=0.1.0-dev.1" }
+lovpn-cli = { path = "../lovpn-cli", version = "=0.1.0-dev.1" }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

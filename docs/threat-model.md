@@ -88,6 +88,66 @@ with an explicit local-console recovery procedure.
   and tables bearing its ownership marker, and refuses same-named foreign ones.
   Residual: `ip_forward` is a host-wide setting that LoVPN enables and later restores.
 
+## M3 client additions and residuals
+
+- **Client broker abuse:** `lovpn-clientd` is root with only `CAP_NET_ADMIN` and
+  `CAP_CHOWN` in its unit, fixed absolute tools and strict peer-credential IPC.
+  A compromised broker is nevertheless root-equivalent for host networking. The
+  controlling owner is intentionally authorized to disconnect/reset and lift the
+  kill switch; this is recovery authority, not protection from that account or root.
+- **Profile/key exposure:** profiles and client keys are stored root-owned under
+  `/var/lib/lovpn-client`, not in the user's home. The CLI sends the import request
+  over the 0600 socket; the service keeps its own key copy. Uninstall retains this
+  state and never silently deletes profiles.
+- **Crash, interface loss and resume:** the broker records desired state, installs
+  the deny policy before the tunnel and re-arms it on restart; the monitor repairs
+  owned state and nudges stale handshakes. This is covered in namespace tests and in the
+  Fedora 44 VM gate (real systemd, reboot, ACPI suspend/resume, SIGKILL; frames captured
+  outside the guest), not by multi-adapter or physical-hardware evidence.
+- **DHCP/DNS/IPv6 scope:** IPv4 DHCP renewal is an explicit firewall exception, not
+  a managed DHCP lifecycle. Managed DNS is only the systemd-resolved per-link path;
+  unmanaged DNS is degraded; real systemd-resolved was exercised in the VM gate, resolver fallback and multiple adapters were not. IPv6
+  endpoints, IPv6 tunnel mode, NDP/RA, LAN bypass and split routing are rejected or
+  unavailable. No production leak claim follows from the M3 implementation.
+- **Route-table collision:** the client uses a fixed policy-routing table number, which
+  is a convention rather than kernel ownership. Cleanup now inspects the table and
+  removes only the recorded default route on the broker-created interface. Any extra
+  or foreign route causes a refusal and leaves the session desired/repairable; the
+  implementation no longer flushes the whole table. A separate LoVPN instance or a
+  privileged local process can still create a race, which is outside the broker's
+  hostile-root boundary.
+- **Privileged session-record tampering:** client session records are opened without
+  following symlinks and require a regular single-link file owned by the broker with
+  safe mode and bounded size. This is defense in depth around the root-owned state
+  directory, not protection from root.
+
+## M2c enrollment additions and residuals
+
+- **Token theft or guessing:** 256-bit secrets, at most 24 h life, single use, stored only
+  as SHA-256 digests, compared in constant time; wrong, unknown, expired, revoked and
+  replayed tokens get the same answer. Online guessing is bounded per source (5 failures
+  per 15 min with 30 s to 1 h back-off) and globally (60 per 15 min), enforced before TLS
+  and persisted across restarts. Residual: an attacker who can *see* the token (shoulder,
+  chat history, pin channel) before the legitimate user redeems it wins the race; deliver
+  it over a channel you trust and keep lifetimes short.
+- **Rogue or intercepted server:** the client pins the certificate and verifies the
+  handshake signature before sending anything; a wrong pin aborts with no token sent.
+  Residual: a pin obtained over a hostile channel authenticates the attacker; the
+  channel for the pin is the administrator's responsibility.
+- **Replay and lost responses:** an identical retry within 10 minutes returns the same
+  profile and creates nothing; any other key is refused. Residual: within that window
+  someone holding both the token and the same public key gets the public profile (not a
+  secret).
+- **Denial of service:** one connection is handled at a time with a 10 s deadline, so a
+  patient attacker can delay legitimate enrollments, but per-source and global budgets
+  throttle repeated failures and idle sockets count as failures. Residual: a spoofable
+  or NAT-shared source address shares a budget; the listener is not a hardened public
+  web service, so expose it only for the enrollment window if you can.
+- **Service user compromise:** can forge tokens or peers (the service user administers
+  peers); the listener itself holds no capability and no root.
+- **Log and error leakage:** logs carry event classes, token ids and peer ids only; tests
+  scan real process output for tokens, secrets, client keys and addresses.
+
 ## Review checkpoint
 
 At each milestone inspect cryptography, key lifetime, privileges, route/DNS/IPv6

@@ -1,8 +1,9 @@
 # Enrollment and privilege-broker design
 
-Status: **offline enrollment and the Linux server broker are implemented** (see
-[server.md](server.md)). Online enrollment, the Windows broker and the *client*
-broker are **designs only; no code exists**.
+Status: **offline enrollment, the Linux server broker and the Linux client broker are
+implemented**, as is the Windows service (see [server.md](server.md), [client.md](client.md)
+and [windows.md](windows.md)). Online enrollment is implemented (below). On Windows the client
+key is created by the service (`lovpn identity generate --name N`), so there is no key file.
 
 ## Offline enrollment (implemented)
 
@@ -19,45 +20,93 @@ broker are **designs only; no code exists**.
 
 Evidence: unit/integration/CLI tests (replay of keys, name/lease rules, secrets absent
 from outputs) and `tests/networking/server_e2e.py`, where two peers enrolled this way
-complete real WireGuard handshakes with a broker-applied server. The test clients are
-configured by hand from the exported profile: the Linux client lifecycle does not exist.
+complete real WireGuard handshakes with a broker-applied server. That server gate's
+test clients are configured by hand; the separate client gate exercises
+`lovpn-clientd` in a disposable namespace, and `tests/linux-vm` runs the real units on Fedora VMs.
 
-## Online enrollment (design, not implemented)
+## Online enrollment (implemented, M2c)
 
-Goals: let an administrator add a device without moving files, with no LoVPN-operated
-service. Optional; offline enrollment remains the baseline.
+Goal: add a device without moving files, with no LoVPN-operated service. It is optional;
+offline enrollment remains the baseline. Evidence: `crates/lovpn-server/tests/enroll.rs`,
+`enroll_cli.rs`, `crates/lovpn-enroll` unit tests, and the `enrollment_gate` in
+`tests/networking/server_e2e.py` (real TLS, real broker apply, real WireGuard handshake).
 
-- **Transport**: TLS 1.3 only, using a maintained TLS library (candidate: rustls with
-  a vetted crypto provider; the license/audit review is a precondition). The server
-  certificate is self-generated; its SPKI hash is distributed **out of band** with the
-  token. The client pins it; no fallback to system roots or "trust on first use", and
-  certificate validation is never disabled.
-- **Token**: at least 256 bits from the OS CSPRNG, shown once to the administrator
-  (stdin/QR/file, never argv or logs), valid for a short administrator-set window
-  (default 15 minutes, hard cap 24 hours). The server stores only a keyed digest
-  (BLAKE2s/SHA-256 via a maintained crate) plus metadata: id, expiry, bound state,
-  creator generation. QR codes are only an encoding.
-- **Request** (bounded, e.g. 4 KiB, strict schema, unknown fields rejected):
-  `{version, token, client_public_key, proof}`. The token is carried in the TLS body,
-  never in a URL or header that proxies/logs record. The private key is never sent.
-  The client public key is bound to the token at first redemption.
-- **Redemption** is one durable state transaction under the same lock/generation
-  discipline as `Store::update`: verify unexpired and not revoked, constant-time digest
-  compare, create the peer, mark the token `redeemed(client_public_key, peer_id)`.
-- **Retries / lost responses**: a repeat with the *same* token digest **and the same
-  client public key** returns the already-created profile (idempotent). Any other key,
-  or a repeat after the lost-response window closes, fails as replayed. The token is
-  never reusable for a different key.
-- **Expiry and clocks**: expiry is checked against a monotonic-plus-persisted clock
-  record; persisted time that moves backwards is rejected, not silently extended.
-- **Rate limiting**: before parsing the body or doing digest work, per-source and
-  global failure budgets with exponential back-off; budgets persist across restart.
-- **Errors/logs**: uniform failure responses that do not distinguish unknown, expired
-  and replayed tokens to the caller; logs record event class and token *id*, never
-  token text, request bodies or client IPs by default.
-- **Required tests before release**: expired, replayed, revoked, concurrent redemption,
-  crash during redemption (before/after commit), malformed, oversized, wrong server
-  identity (pin mismatch), wrong client key, token leakage via logs/errors/panics.
+Flow:
+
+1. Administrator, once: `lovpn-server enroll tls-init` creates the enrollment TLS identity
+   and prints its **pin** (`sha256:` + SHA-256 of the certificate DER). It never
+   overwrites an existing identity, because that would silently change the pin. To
+   replace it deliberately, `lovpn-server enroll tls-rotate --yes` (below).
+2. Administrator, per device: `lovpn-server enroll token create --name laptop` prints a
+   one-time token **once** (not stored) together with the pin.
+3. Administrator: `lovpn-server enroll serve --listen ADDR` (as the service user, never
+   root; or the `lovpn-server-enroll` unit). Open that TCP port in your own firewall.
+4. Give the client the token and the pin over a channel you trust. The pin is not secret
+   but must not be attacker-controlled; the token is a short-lived bearer secret.
+5. Client: `lovpn enroll --server ADDR --pin sha256:… --token-file F --name home
+   --key-file client.key --generate-key` (token from a file or `-` for stdin, never argv).
+
+What is implemented and how:
+
+- **Transport**: TLS 1.3 only (`rustls`, ring provider; TLS 1.2 is not compiled in).
+  The certificate is self-generated (`rcgen`). The client trusts exactly one
+  certificate: the one whose SHA-256 equals the pin. There is no fallback to system
+  roots, no trust-on-first-use and no switch to disable verification. The handshake
+  completes (and the signature is verified against the pinned certificate) **before**
+  the request is written, so a wrong pin never discloses the token. Documented
+  deviation from the original sketch: the pin covers the whole certificate, not only
+  its public key (SPKI); renewing the certificate therefore means re-distributing the
+  pin. This avoids an ASN.1 parser in the trust path.
+- **Token**: `lovpn1-<16 hex id>-<43 base64url>`; 256-bit secret from the OS CSPRNG,
+  default lifetime 15 minutes, hard cap 24 hours. The server stores only a SHA-256 digest
+  of the secret (a 256-bit random secret needs no slow KDF) and compares in constant time.
+  The id is a non-secret handle used in listings and logs. QR codes are not implemented.
+- **Request** (one JSON line, at most 4 KiB, unknown fields and versions rejected):
+  `{version, token, client_public_key}`. The token travels in the TLS body only. The
+  private key is never sent. There is deliberately **no proof of possession**:
+  WireGuard keys cannot sign, an invented proof would be home-made cryptography, and
+  registering a key one does not hold only yields an unusable peer.
+- **Redemption** is one `Store::update` commit under the state lock: creating the peer
+  and marking the token redeemed are the same atomic write. The peer name is chosen by
+  the administrator when issuing the token, never by the client. A crash before the
+  commit leaves the token pending; after it, an identical retry succeeds (below).
+- **Retries / lost responses**: the same token **and the same client key** within 10
+  minutes of redemption returns the same profile and changes nothing. Any other key, or
+  the same pair later, is `denied`. The token is never reusable for another key.
+- **Uniform failures**: unknown id, wrong secret, expired, revoked, already used,
+  duplicate key and pool exhaustion all answer `enroll.denied`. Only malformed requests
+  and rate limiting differ. Details exist only as event classes in the server log.
+- **Expiry and clocks**: the state records a high-water time. A clock that is more than
+  120 s behind it makes issuing and redeeming fail (`enroll.clock`); time is never
+  silently extended.
+- **Rate limiting**: before any TLS work or parsing, a source (IPv4 address or IPv6 /64)
+  with an exhausted budget (5 failures per 15 minutes) is dropped with exponential
+  back-off from 30 s to 1 h; a global budget (60 failures per 15 minutes) bounds
+  distributed guessing. Budgets persist across restarts (`enroll-limits.json`, 0600).
+  A throttled client sees a dropped connection, not a distinguishable error.
+- **Identity rotation**: `enroll tls-rotate --yes` generates a new certificate and key
+  and replaces the one identity file (`enroll-tls.json`, certificate and key together, 0600)
+  with a single atomic rename, so a crash can never leave a mismatched pair. The old pin
+  stops working **at once** (there is no overlap period, by design: two valid pins would
+  double the pin-distribution problem); pending tokens stay valid and simply need to be
+  handed out together with the new pin. A running listener notices the changed file on its
+  next connection and switches without a restart (it logs `enroll-identity-reloaded`);
+  an unreadable replacement keeps the previous identity serving and is logged. Rotate
+  between enrollment windows. Evidence: unit tests, and the real-host gate rotates under
+  the live `lovpn-server-enroll` systemd unit and shows the old pin refused and the new one
+  accepted.
+- **Apply**: after commit the listener asks the broker to apply the new peer. If that
+  fails the client is still enrolled and the response says `applied: false` so neither
+  side is misled; the administrator runs `lovpn-server apply`.
+- **Logs**: JSON event class, token id and peer id only. Never token text, request
+  bodies, client addresses or keys (checked by tests that scan the real process output).
+
+Limits that remain: one connection is served at a time with a 10 s deadline (a
+determined attacker can queue connections but is rate limited per source and globally);
+the listener cannot distinguish clients behind one NAT; a compromised service user can
+forge tokens or peers (the service user is trusted for peer administration); the pin
+channel is the administrator's responsibility; QR/URI encodings are not implemented
+and rotation has no overlap period.
 
 ## Privileged broker
 
@@ -65,17 +114,18 @@ The GUI, CLI and `lovpn-server` management commands never run as root. A small b
 is the **only** component allowed to configure TUN/WireGuard interfaces, routes,
 nftables/WFP, resolver state, and privileged state files.
 
-**Implemented (Linux server broker, `lovpn-server broker`)**: the 0600 Unix socket,
+**Implemented (Linux server broker and Linux client broker)**: authenticated 0600 Unix
+socket(s),
 kernel peer-credential checks and per-operation authorization (`teardown` root-only),
 4 KiB strict-schema requests with timeouts and serialized handling, expected-generation
 checks, no paths/commands/interface names in requests, ownership checks for the
 interface (broker record) and nft tables (comment marker), an anti-rollback record in a
 root-only directory, rollback of partial applies, and sanitized structured logs. The
-systemd unit exists but has never run as a real service. **Not implemented**: the
-client-side broker (TUN, routes, kill switch, resolver), Windows service/named pipe.
+client broker additionally owns the WireGuard link, policy routing, kill switch and
+optional resolved adapter. The units were run as real systemd services in the Fedora 44 VM gate (`tests/linux-vm`).
+**Windows**: `lovpn enroll --identity` (the key is held by the Windows service under the profile name created with `lovpn identity generate --name`) was run in the Windows 11 VM against a Linux listener: a wrong pin was refused with nothing sent, a valid token enrolled and imported the profile, an identical retry returned the same profile, and the test profile and identity were removed afterwards. No tunnel was brought up in that test.
 
-The text below is the full design the implemented part follows, and the requirements
-for the client broker.
+The text below records the shared broker requirements and the remaining platform work.
 
 Linux:
 
@@ -95,12 +145,12 @@ Linux:
   never flushes the host ruleset or unrelated routes/resolver state.
 - Persistent monotonic generation counter owned by the broker (implemented: the
   applied-generation record; it closes the rollback gap for applied state).
-- systemd hardening (to be verified with `systemd-analyze security`): `NoNewPrivileges`,
+- systemd hardening (statically checked for the Linux units): `NoNewPrivileges`,
   `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `CapabilityBoundingSet=CAP_NET_ADMIN`
   (`CAP_NET_RAW` only if shown necessary), `RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6`,
   `SystemCallFilter=@system-service`, explicit `ReadWritePaths`. `PrivateNetwork` is
   not used because the service manages host networking. Capabilities are not a sandbox
   against a compromised broker.
 
-Windows (later): dedicated service, ACL-restricted named pipe, caller-token
-authorization; only after Linux behavior is real and tested natively in the VM.
+Windows (implemented, see [windows.md](windows.md)): dedicated service, ACL-restricted named
+pipe, caller-token authorization.

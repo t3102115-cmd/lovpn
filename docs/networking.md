@@ -1,7 +1,10 @@
 # Networking and fail-closed policy
 
-All live integration in this document is a design requirement unless explicitly
-listed as tested. The first compiler is a laboratory-only policy generator.
+The M3 Linux client now applies and observes an owned full-tunnel policy through
+`lovpn-clientd`; server and client live behavior is still only evidenced in
+disposable namespaces and, for service behavior, on two Fedora 44 virtual machines
+(`tests/linux-vm`: real systemd, resolved, NetworkManager, reboot, suspend). That is
+evidence for those paths, not a support claim for other distributions or hardware.
 
 ## Topology
 
@@ -10,8 +13,10 @@ and/or Internet. The encrypted outer endpoint must remain reachable independentl
 of the tunnel default route. There is no required LoVPN-operated network service.
 
 WireGuard's usual UDP port is 51820, configurable. Offline enrollment opens no
-additional port. Future online enrollment binds only when explicitly enabled;
-its TCP port and TLS identity must appear in setup's reviewed plan. No UPnP/NAT-PMP
+additional port. Online enrollment binds only when the administrator runs
+`lovpn-server enroll serve --listen ADDR` (or configures the unit); LoVPN never opens the
+firewall for it, so the administrator opens that TCP port deliberately. Its TLS identity is
+created only by the explicit `enroll tls-init`. No UPnP/NAT-PMP
 port opening or LAN discovery occurs silently.
 
 ## Routing
@@ -23,11 +28,16 @@ must explicitly identify protected destinations and their DNS coverage. It does
 not mean all traffic is private. LAN bypass is an enumerated exception, off by
 default, with overlap/conflict checks against VPN and endpoint routes.
 
-Planned Linux routing uses an owned policy-routing table, WireGuard socket fwmark
+The M3 Linux client uses an owned policy-routing table, WireGuard socket fwmark
 and route rules to prevent endpoint recursion. Do not permit all UDP to any
 destination or all existing conntrack flows. Endpoint mobility needs an atomic
 old/new allowlist transaction coordinated with WireGuard roaming; a new endpoint
 is not adopted from arbitrary DNS responses without policy validation.
+
+The policy table has a fixed LoVPN convention, not a kernel ownership primitive.
+Cleanup inspects its routes first and removes only the recorded LoVPN default route
+on the broker-created interface. If any other route is present, cleanup refuses to
+flush the table and keeps the session in a repairable desired state.
 
 Literal endpoint addresses are required initially. This avoids bootstrap DNS
 queries outside protection. Future hostname support requires a disclosed resolver,
@@ -54,12 +64,14 @@ marks. The compiler must reject resolver endpoints that collide with the WireGua
 endpoint/port, and no globally allowed DNS UDP exception may exist. Local processes
 with administrative capabilities are outside this enforcement boundary.
 
-Initial rules intentionally have **no DHCP, IPv6 NDP, RA or LAN allowances**. Static
-IPv4 lab tests are possible; production roaming and IPv6 outer endpoints are not
-ready. Reject an IPv6 outer endpoint in the initial compiler rather than pretending
-IPv6 underlay works. IPv6 payload through an IPv4 WireGuard endpoint is a separate
-case. Later underlay exceptions must be constrained by interface, hop limit,
-ICMPv6 type and scope and tested against hostile routers.
+M3 rules intentionally allow only the IPv4 DHCP client renewal flow (UDP source
+port 68 to destination port 67) in addition to loopback, the marked IPv4 endpoint
+and the tunnel. This is an nft exception, not a DHCP client or lease manager. There
+are **no IPv6 NDP/RA, IPv6 DHCP or LAN allowances**. Static IPv4 lab tests are
+possible; IPv6 outer endpoints, IPv6 tunnel payload, production roaming and LAN
+bypass are not ready. Reject an IPv6 outer endpoint rather than pretending IPv6
+underlay works. Later underlay exceptions must be constrained by interface, hop
+limit, ICMPv6 type and scope and tested against hostile routers.
 
 Kill-switch modes refer to lifecycle behavior, not just rule text:
 
@@ -69,9 +81,10 @@ Kill-switch modes refer to lifecycle behavior, not just rule text:
 - **Strict:** protection remains on deliberate disconnect, shutdown and service
   failure until the user explicitly disables it. Boot-time coverage is required.
 
-The compiler can represent Off/IPv6 policy in configuration but refuses to produce
-an enforceable protection plan for Off or split routing. It cannot implement either
-mode's lifecycle persistence. CLI output must say generated, not applied/protected.
+The offline compiler still only previews policy. The Linux client broker can install
+owned full-tunnel VPN-only/Strict policy and persist its desired state, but refuses
+Off-as-protection, split routing, IPv6 tunnel mode and IPv6 endpoints. CLI preview
+output is not proof of host protection; client `status` is based on observations.
 
 ## DNS and IPv6
 
@@ -80,9 +93,13 @@ default and, when used, full IPv6 default cover resolvers. Split routes must cov
 every configured resolver. Reject IPv6 DNS with IPv6 blocked, ambiguous local
 loopback stubs, scoped link-local DNS without an interface model, and empty lists.
 
-Planned Linux adapters configure systemd-resolved per-link DNS and the `~.` routing
-domain or coordinate with NetworkManager. Neither alone proves absence of fallback:
-firewall enforcement and actual multi-adapter queries are required. Windows needs
+The M3 Linux adapter configures systemd-resolved per-link DNS and the `~.` routing
+domain when `/etc/resolv.conf` is resolved-managed. It never rewrites
+`/etc/resolv.conf`. This does not prove absence of fallback: firewall enforcement
+and actual multi-adapter queries are required, and real resolved behavior is not
+yet exercised. `--dns-backend unmanaged` deliberately leaves DNS unchanged and
+reports it as unprotected/degraded. NetworkManager coordination is not implemented.
+Windows needs
 NRPT/interface policy plus WFP, with multi-homed resolver behavior tested. Preserve
 and restore prior resolver state transactionally. Unsupported resolver configurations
 fail closed rather than editing `/etc/resolv.conf` blindly.
@@ -104,9 +121,11 @@ advertise IPv6 full-tunnel capability. Record/restore owned sysctl changes safel
 
 ## Recovery
 
-Future `firewall status/show/validate` inspect actual owned state; `repair` reconciles
-while blocked. `reset` requires an explicit warning that traffic may leave outside
-the VPN, and removes only verified LoVPN-owned resources. A local-console recovery
-path and firewall ownership journal must exist before privileged installation is
-shipped. This milestone never installs host rules; isolated test namespaces vanish
-on exit. Do not manually apply generated lab policies to a remote machine.
+Client `status`/`diagnostics` inspect actual owned interface, rules, routes, firewall,
+handshake and resolver observations; `repair` reconciles while blocked. `reset`
+removes only verified LoVPN-owned resources and explicitly restores normal networking.
+The durable client record re-arms strict protection after broker restart, and the
+monitor attempts repair after interface loss or a detected resume. The owner or root
+can explicitly release the kill switch. Real suspend/resume, reboot ordering and a
+systemd-run service have not been exercised. The offline compiler still never
+installs host rules; do not apply its preview to a remote machine.

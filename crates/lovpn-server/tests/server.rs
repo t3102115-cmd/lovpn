@@ -403,3 +403,36 @@ fn errors_and_state_never_contain_private_keys() {
     }
     let _ = store;
 }
+
+#[test]
+fn an_installer_created_empty_private_directory_is_adopted_but_nothing_else_is() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let make = |name: &str, mode: u32| {
+        let path = dir.path().join(name);
+        std::fs::create_dir(&path).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+        path
+    };
+    // What systemd-tmpfiles leaves behind: empty, 0700, ours.
+    let ready = make("ready", 0o700);
+    assert!(Store::create_dir(&ready).is_ok());
+    let (state, key) = new_state();
+    let store = Store::open(&ready).unwrap();
+    store.init(&state, &key).unwrap();
+    // Existing state is never adopted (non-empty), nor a directory with a loose mode.
+    assert_eq!(Store::create_dir(&ready).unwrap_err(), ServerError::Exists);
+    let loose = make("loose", 0o755);
+    assert_eq!(Store::create_dir(&loose).unwrap_err(), ServerError::Exists);
+    let target = make("target", 0o700);
+    let link = dir.path().join("link");
+    symlink(&target, &link).unwrap();
+    assert_eq!(Store::create_dir(&link).unwrap_err(), ServerError::Exists);
+    // A missing directory is still created, mode 0700.
+    let fresh = dir.path().join("fresh");
+    Store::create_dir(&fresh).unwrap();
+    assert_eq!(
+        std::fs::metadata(&fresh).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+}

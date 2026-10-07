@@ -1,8 +1,8 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
-use lovpn_keys::{
-    ClientPrivateKey, ClientPublicKey, KeyError, PresharedKey, ServerPrivateKey,
-    file::{self, KeyFileError},
-};
+#[cfg(unix)]
+use lovpn_keys::file::{self, KeyFileError};
+use lovpn_keys::{ClientPrivateKey, ClientPublicKey, KeyError, PresharedKey, ServerPrivateKey};
+#[cfg(unix)]
 use std::os::unix::fs::{PermissionsExt, symlink};
 
 fn b64(bytes: &[u8]) -> String {
@@ -125,104 +125,108 @@ fn secrets_are_redacted_in_debug_and_errors() {
     assert!(!text.contains(&secret));
 }
 
-fn secure_dir() -> tempfile::TempDir {
-    let dir = tempfile::tempdir().unwrap_or_else(|_| unreachable!());
-    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700))
-        .unwrap_or_else(|_| unreachable!());
-    dir
-}
+#[cfg(unix)]
+mod unix_files {
+    use super::*;
+    fn secure_dir() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap_or_else(|_| unreachable!());
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700))
+            .unwrap_or_else(|_| unreachable!());
+        dir
+    }
 
-#[test]
-fn key_file_round_trip_has_private_mode_and_refuses_overwrite() {
-    let dir = secure_dir();
-    let path = dir.path().join("client.key");
-    let key = ClientPrivateKey::generate().unwrap_or_else(|_| unreachable!());
-    assert_eq!(file::write_new(&path, &key), Ok(()));
-    let mode = std::fs::metadata(&path).map(|m| m.permissions().mode() & 0o777);
-    assert_eq!(mode.ok(), Some(0o600));
-    let loaded = file::read::<lovpn_keys::Client>(&path).unwrap_or_else(|_| unreachable!());
-    assert_eq!(loaded.public_key(), key.public_key());
-    let other = ClientPrivateKey::generate().unwrap_or_else(|_| unreachable!());
-    assert_eq!(file::write_new(&path, &other), Err(KeyFileError::Exists));
-    let again = file::read::<lovpn_keys::Client>(&path).unwrap_or_else(|_| unreachable!());
-    assert_eq!(
-        again.public_key(),
-        key.public_key(),
-        "original key must survive"
-    );
-}
+    #[test]
+    fn key_file_round_trip_has_private_mode_and_refuses_overwrite() {
+        let dir = secure_dir();
+        let path = dir.path().join("client.key");
+        let key = ClientPrivateKey::generate().unwrap_or_else(|_| unreachable!());
+        assert_eq!(file::write_new(&path, &key), Ok(()));
+        let mode = std::fs::metadata(&path).map(|m| m.permissions().mode() & 0o777);
+        assert_eq!(mode.ok(), Some(0o600));
+        let loaded = file::read::<lovpn_keys::Client>(&path).unwrap_or_else(|_| unreachable!());
+        assert_eq!(loaded.public_key(), key.public_key());
+        let other = ClientPrivateKey::generate().unwrap_or_else(|_| unreachable!());
+        assert_eq!(file::write_new(&path, &other), Err(KeyFileError::Exists));
+        let again = file::read::<lovpn_keys::Client>(&path).unwrap_or_else(|_| unreachable!());
+        assert_eq!(
+            again.public_key(),
+            key.public_key(),
+            "original key must survive"
+        );
+    }
 
-#[test]
-fn key_file_rejects_unsafe_files() {
-    let dir = secure_dir();
-    let key = ClientPrivateKey::generate().unwrap_or_else(|_| unreachable!());
-    let path = dir.path().join("k");
-    assert_eq!(file::write_new(&path, &key), Ok(()));
+    #[test]
+    fn key_file_rejects_unsafe_files() {
+        let dir = secure_dir();
+        let key = ClientPrivateKey::generate().unwrap_or_else(|_| unreachable!());
+        let path = dir.path().join("k");
+        assert_eq!(file::write_new(&path, &key), Ok(()));
 
-    // Group/other readable.
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640))
-        .unwrap_or_else(|_| unreachable!());
-    assert_eq!(
-        file::read::<lovpn_keys::Client>(&path).err(),
-        Some(KeyFileError::Permissions)
-    );
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-        .unwrap_or_else(|_| unreachable!());
+        // Group/other readable.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640))
+            .unwrap_or_else(|_| unreachable!());
+        assert_eq!(
+            file::read::<lovpn_keys::Client>(&path).err(),
+            Some(KeyFileError::Permissions)
+        );
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .unwrap_or_else(|_| unreachable!());
 
-    // Symlink (read and write) refused.
-    let link = dir.path().join("link");
-    symlink(&path, &link).unwrap_or_else(|_| unreachable!());
-    assert_eq!(
-        file::read::<lovpn_keys::Client>(&link).err(),
-        Some(KeyFileError::Unavailable)
-    );
-    let victim = dir.path().join("victim");
-    let dangling = dir.path().join("dangling");
-    symlink(&victim, &dangling).unwrap_or_else(|_| unreachable!());
-    assert!(file::write_new(&dangling, &key).is_err());
-    assert!(!victim.exists(), "write must not follow a symlink");
+        // Symlink (read and write) refused.
+        let link = dir.path().join("link");
+        symlink(&path, &link).unwrap_or_else(|_| unreachable!());
+        assert_eq!(
+            file::read::<lovpn_keys::Client>(&link).err(),
+            Some(KeyFileError::Unavailable)
+        );
+        let victim = dir.path().join("victim");
+        let dangling = dir.path().join("dangling");
+        symlink(&victim, &dangling).unwrap_or_else(|_| unreachable!());
+        assert!(file::write_new(&dangling, &key).is_err());
+        assert!(!victim.exists(), "write must not follow a symlink");
 
-    // Hard link, oversized, garbage, directory, missing.
-    let hard = dir.path().join("hard");
-    std::fs::hard_link(&path, &hard).unwrap_or_else(|_| unreachable!());
-    assert_eq!(
-        file::read::<lovpn_keys::Client>(&path).err(),
-        Some(KeyFileError::Unavailable)
-    );
-    let big = dir.path().join("big");
-    std::fs::write(&big, vec![b'A'; 4096]).unwrap_or_else(|_| unreachable!());
-    std::fs::set_permissions(&big, std::fs::Permissions::from_mode(0o600))
-        .unwrap_or_else(|_| unreachable!());
-    assert!(matches!(
-        file::read::<lovpn_keys::Client>(&big),
-        Err(KeyFileError::Invalid(_))
-    ));
-    let junk = dir.path().join("junk");
-    std::fs::write(&junk, "not a key\n").unwrap_or_else(|_| unreachable!());
-    std::fs::set_permissions(&junk, std::fs::Permissions::from_mode(0o600))
-        .unwrap_or_else(|_| unreachable!());
-    let error = file::read::<lovpn_keys::Client>(&junk).err();
-    assert!(matches!(error, Some(KeyFileError::Invalid(_))));
-    assert!(
-        !error
-            .map(|e| e.to_string())
-            .unwrap_or_default()
-            .contains(dir.path().to_string_lossy().as_ref())
-    );
-    assert!(file::read::<lovpn_keys::Client>(dir.path()).is_err());
-    assert_eq!(
-        file::read::<lovpn_keys::Client>(&dir.path().join("none")).err(),
-        Some(KeyFileError::Unavailable)
-    );
-}
+        // Hard link, oversized, garbage, directory, missing.
+        let hard = dir.path().join("hard");
+        std::fs::hard_link(&path, &hard).unwrap_or_else(|_| unreachable!());
+        assert_eq!(
+            file::read::<lovpn_keys::Client>(&path).err(),
+            Some(KeyFileError::Unavailable)
+        );
+        let big = dir.path().join("big");
+        std::fs::write(&big, vec![b'A'; 4096]).unwrap_or_else(|_| unreachable!());
+        std::fs::set_permissions(&big, std::fs::Permissions::from_mode(0o600))
+            .unwrap_or_else(|_| unreachable!());
+        assert!(matches!(
+            file::read::<lovpn_keys::Client>(&big),
+            Err(KeyFileError::Invalid(_))
+        ));
+        let junk = dir.path().join("junk");
+        std::fs::write(&junk, "not a key\n").unwrap_or_else(|_| unreachable!());
+        std::fs::set_permissions(&junk, std::fs::Permissions::from_mode(0o600))
+            .unwrap_or_else(|_| unreachable!());
+        let error = file::read::<lovpn_keys::Client>(&junk).err();
+        assert!(matches!(error, Some(KeyFileError::Invalid(_))));
+        assert!(
+            !error
+                .map(|e| e.to_string())
+                .unwrap_or_default()
+                .contains(dir.path().to_string_lossy().as_ref())
+        );
+        assert!(file::read::<lovpn_keys::Client>(dir.path()).is_err());
+        assert_eq!(
+            file::read::<lovpn_keys::Client>(&dir.path().join("none")).err(),
+            Some(KeyFileError::Unavailable)
+        );
+    }
 
-#[test]
-fn key_file_refuses_group_writable_parent_directory() {
-    let dir = secure_dir();
-    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o770))
-        .unwrap_or_else(|_| unreachable!());
-    let key = ClientPrivateKey::generate().unwrap_or_else(|_| unreachable!());
-    let path = dir.path().join("k");
-    assert_eq!(file::write_new(&path, &key), Err(KeyFileError::Permissions));
-    assert!(!path.exists());
+    #[test]
+    fn key_file_refuses_group_writable_parent_directory() {
+        let dir = secure_dir();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o770))
+            .unwrap_or_else(|_| unreachable!());
+        let key = ClientPrivateKey::generate().unwrap_or_else(|_| unreachable!());
+        let path = dir.path().join("k");
+        assert_eq!(file::write_new(&path, &key), Err(KeyFileError::Permissions));
+        assert!(!path.exists());
+    }
 }

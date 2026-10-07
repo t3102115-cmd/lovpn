@@ -1,4 +1,4 @@
-# Server administration (M2a + M2b)
+# Server administration (M2a + M2b + M2c)
 
 `lovpn-server` manages server identity, peers and state, and — through a small
 privileged **broker** — applies that state to a Linux host: a WireGuard interface,
@@ -20,10 +20,10 @@ read [Known limitations](#known-limitations) before relying on it.
 | Revocation / rotation enforced on the live interface | implemented (`--apply` or `apply`); verified with real traffic |
 | Rollback protection for applied state | implemented; verified |
 | `status --live`, `firewall status/repair`, `teardown` | implemented; verified |
-| systemd unit, sysusers/tmpfiles, install/uninstall script | written; `systemd-analyze verify` and a staged install tested; **never run as a real service** |
+| systemd unit, sysusers/tmpfiles, install/uninstall script | installed by the real installer and run as real services on a Fedora 44 VM (capabilities, journal, reboot restore, uninstall checked; `tests/linux-vm`); other distributions untested |
 | Structured sanitized broker logs | implemented (JSON lines to stderr/journal) |
 | IPv6 | only the explicit `block` policy |
-| Online (token) enrollment | design only |
+| Online (token) enrollment (M2c): pinned TLS 1.3, one-time tokens, rate limits | implemented; verified with real TLS and a real WireGuard handshake in a namespace; the enrollment unit also ran as a real systemd service in the Fedora 44 VM gate (non-root, no capabilities, TLS identity rotated under it) |
 | Server key rotation, split-tunnel/LAN-gateway modes, DNS forwarding, resource metrics | **not implemented** |
 
 ## Quick start
@@ -61,8 +61,9 @@ who can alter it in transit could point the client at their own server; that is 
 key comparison is out of band. `--dns` must name a resolver reachable **through the
 tunnel**; LoVPN does not run one.
 
-> The **client** side that turns a profile into a connected, leak-protected VPN is not
-> built yet. The server test configures its test clients by hand with `wg` and `ip`.
+> The Linux client side is now implemented as `lovpn-clientd` plus `lovpn`; see
+> [client.md](client.md). The server namespace gate still configures its test clients
+> by hand with `wg` and `ip`, so it is not client-service evidence.
 
 ## Installing the broker on a host
 
@@ -101,7 +102,24 @@ invalidates every exported profile.
 - `firewall show|validate` (offline), `firewall status|repair` (through the broker).
 - `teardown --yes` (root only): remove only LoVPN-owned resources. Clients lose service.
 - `reset --plan`: prints the removal steps; deletes nothing.
-- `broker --owner-user lovpn-server --broker-dir /var/lib/lovpn-broker`: the daemon.
+- `enroll tls-init|pin|tls-rotate --yes|token create|list|revoke|serve`: online enrollment, see
+  [enrollment.md](enrollment.md). `tls-init` is run once and prints the pin to give to
+  clients; `tls-rotate --yes` replaces the identity (new pin at once, pending tokens stay
+  valid, a running listener switches by itself); `token create --name N [--ttl-minutes 15]` prints a one-time token once;
+  `token list` shows ids and status, never tokens; `serve --listen ADDR` runs the
+  listener (refuses to run as root; `--no-apply` leaves applying to you). The
+  `lovpn-server-enroll` unit runs it as `lovpn-server` with no capabilities and stays
+  disabled and unconfigured until you write `LOVPN_ENROLL_LISTEN=ADDR:PORT` to
+  `/etc/lovpn-server/enroll.env`. Open that TCP port in your own firewall; LoVPN does not.
+- `broker --owner-user lovpn-server --broker-dir /var/lib/lovpn-broker [--apply-on-start]`:
+  the daemon. The installed unit passes `--apply-on-start`: once, right after it starts, the
+  broker re-applies the **persisted** state exactly as `apply` would (same anti-rollback
+  check; a missing state or any refusal is logged as `startup-apply` and is not fatal), so a
+  rebooted server serves its peers again without anyone logging in. It never invents
+  changes: it only repeats what the administrator already committed.
+- `setup --write-state` also adopts an **empty, 0700, self-owned** state directory such as
+  the one systemd-tmpfiles creates for the installed unit; any other existing directory is
+  refused as `state.exists`.
 - Peer names: 1-64 of letters, digits, `-`, `_`, `.`, not all digits (digits are ids).
   Revoked peers' addresses are quarantined and their keys burned.
 - A public key shaped like a clamped private key is refused unless `--confirm-public-key`.
@@ -207,20 +225,24 @@ with NAT, real handshakes, peer isolation (with the dropping rule's counter chec
 revocation, rollback refusal, key rotation, recovery after losing interface and tables,
 `firewall repair`, foreign-table refusal and teardown. It does **not** prove: behavior as
 a systemd service, running on a real host with an existing firewall/VPN/NAT, reboot
-persistence, IPv6, throughput, or anything about a client.
+persistence, IPv6, throughput, or anything about a client. Service behavior, reboot
+restore and the enrollment unit are covered by the VM gate (`tests/linux-vm`, Fedora 44).
 
 ## Known limitations
 
 - The broker unit has been verified syntactically and scored by `systemd-analyze`
   (offline exposure 2.8, "OK") but never started as a real service; installation was
   tested only into a staging directory.
-- No client lifecycle: a connected, DNS- and IPv6-protected client does not exist yet.
+- The Linux client supports full IPv4 routing, an owned kill switch and optional
+  systemd-resolved DNS, but real-host service/resolved/IPv6 evidence is still absent.
 - Only full-tunnel/Internet-gateway style routing with NAT is implemented; no LAN-gateway
   or non-NAT routing mode, no split-tunnel policy, no DNS forwarder, no IPv6 tunneling.
 - No daemon health socket beyond `status --live`; no resource metrics.
 - The anti-rollback counter protects against restored old state only for the broker's
   applied generation; if `/var/lib/lovpn-broker` is lost the counter resets.
 - Wall-clock time is used only for timestamps, never for security decisions.
-- No server key rotation, PSK distribution, peer purge, or online enrollment.
+- No server key rotation, PSK distribution or peer purge. Online enrollment has no
+  TLS-identity rotation, QR/URI encoding or proof-of-possession (see enrollment.md), and
+  serves one connection at a time.
 - Linux only; the server compiles to a stub elsewhere and was not built on Windows this
   slice.

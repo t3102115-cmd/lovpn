@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[lib]
+name = "lovpn_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "lovpn"
 path = "src/main.rs"
@@ -13,15 +17,19 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 serde_json.workspace = true
+serde.workspace = true
+lovpn-enroll = { path = "../lovpn-enroll", version = "=0.1.0-dev.1" }
 lovpn-config = { path = "../lovpn-config", version = "=0.1.0-dev.1" }
 lovpn-keys = { path = "../lovpn-keys", version = "=0.1.0-dev.1" }
 lovpn-firewall = { path = "../lovpn-firewall", version = "=0.1.0-dev.1" }
 
 [target.'cfg(unix)'.dependencies]
 rustix.workspace = true
+lovpn-sys = { path = "../lovpn-sys", version = "=0.1.0-dev.1" }
 
 [dev-dependencies]
 tempfile.workspace = true
+lovpn-enroll = { path = "../lovpn-enroll", version = "=0.1.0-dev.1" }
 
 [lints]
 workspace = true

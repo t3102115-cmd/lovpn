@@ -23,6 +23,9 @@ pub struct ServerState {
     pub peers: Vec<Peer>,
     /// Client keys replaced by rotation; never accepted again.
     pub retired_keys: Vec<String>,
+    /// Online-enrollment tokens (digests only). Absent in pre-M2c state files.
+    #[serde(default)]
+    pub enrollment: crate::enroll::EnrollmentState,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -100,7 +103,7 @@ pub fn valid_interface(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.'))
 }
 
-fn valid_peer_name(name: &str) -> bool {
+pub(crate) fn valid_peer_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
         && !name.bytes().all(|c| c.is_ascii_digit())
@@ -157,6 +160,7 @@ impl ServerState {
             next_peer_id: 1,
             peers: Vec::new(),
             retired_keys: Vec::new(),
+            enrollment: crate::enroll::EnrollmentState::default(),
         };
         state.validate()?;
         Ok(state)
@@ -243,6 +247,7 @@ impl ServerState {
         if self.next_peer_id <= max_id {
             return Err(ServerError::State);
         }
+        self.enrollment.validate(self)?;
         // Every profile this server exports must pass the client validator.
         let probe_address = Ipv4Addr::from(u32::from(s.pool.network()).wrapping_add(2));
         self.render_profile(&ExportOptions::default(), probe_address, &server_key)

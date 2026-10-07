@@ -111,15 +111,22 @@ pub fn parse_rules(json: &str) -> Vec<Rule> {
 
 /// `(destination, device)` pairs from `ip -j route show table N`.
 pub fn parse_routes(json: &str) -> Vec<(String, String)> {
-    let Ok(Value::Array(items)) = serde_json::from_str::<Value>(json) else {
-        return Vec::new();
+    parse_routes_checked(json).unwrap_or_default()
+}
+
+/// Strict route observation for mutation decisions. `None` means the command
+/// returned malformed or incomplete JSON; callers must treat that as unknown,
+/// not as an empty route table.
+pub fn parse_routes_checked(json: &str) -> Option<Vec<(String, String)>> {
+    let Value::Array(items) = serde_json::from_str::<Value>(json).ok()? else {
+        return None;
     };
     items
         .iter()
-        .filter_map(|r| {
+        .map(|route| {
             Some((
-                r["dst"].as_str()?.to_string(),
-                r["dev"].as_str()?.to_string(),
+                route["dst"].as_str()?.to_string(),
+                route["dev"].as_str()?.to_string(),
             ))
         })
         .collect()
@@ -134,4 +141,19 @@ pub fn parse_route_get(success: bool, json: &str) -> Option<String> {
         return None;
     };
     items.first()?["dev"].as_str().map(String::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_routes_checked;
+
+    #[test]
+    fn strict_route_parser_does_not_turn_malformed_output_into_empty_state() {
+        assert_eq!(parse_routes_checked("not-json"), None);
+        assert_eq!(parse_routes_checked(r#"[{"dst":"default"}]"#), None);
+        assert_eq!(
+            parse_routes_checked(r#"[{"dst":"default","dev":"lovpn0"}]"#),
+            Some(vec![("default".into(), "lovpn0".into())])
+        );
+    }
 }

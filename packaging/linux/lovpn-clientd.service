@@ -1,0 +1,56 @@
+[Unit]
+Description=LoVPN Linux client broker (privileged network applier)
+# Start the broker early enough to restore an owned kill switch before ordinary
+# network consumers are started. This ordering is a recovery aid, not proof of
+# boot-time leak protection; boot and suspend behavior still need host testing.
+Wants=network-pre.target
+Before=network-pre.target
+After=local-fs.target
+
+[Service]
+Type=simple
+# The broker is root because it owns the WireGuard link, policy routes, nftables
+# table and (when selected) systemd-resolved link settings. The unprivileged CLI
+# talks to its authenticated Unix socket; it never runs these operations itself.
+# The owner UID is installed in /etc/default/lovpn-client so the package can serve
+# the account that installed it without embedding a username in this unit.
+EnvironmentFile=-/etc/default/lovpn-client
+ExecStart=/usr/local/bin/lovpn-clientd --state-dir /var/lib/lovpn-client --socket /run/lovpn-client/broker.sock --owner-uid=${LOVPN_OWNER_UID}
+Restart=on-failure
+RestartSec=2
+UMask=0077
+RuntimeDirectory=lovpn-client
+RuntimeDirectoryMode=0755
+
+# CAP_NET_ADMIN is required for WireGuard, routes, rules and nftables. CAP_CHOWN
+# is required to hand the 0600 broker socket to the configured owner UID. No
+# CAP_NET_RAW, DAC override/search, sysctl or module capability is claimed: this
+# broker does not need raw sockets, private state lookup, or kernel tuning.
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_CHOWN
+AmbientCapabilities=
+
+ProtectSystem=strict
+ReadWritePaths=/var/lib/lovpn-client
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectKernelTunables=yes
+ProtectClock=yes
+ProtectHostname=yes
+# PrivateNetwork is intentionally NOT set: the broker must manage the host's
+# network namespace and the WireGuard endpoint's uplink route.
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

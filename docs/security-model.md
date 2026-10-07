@@ -1,18 +1,23 @@
 # Security model
 
-This document distinguishes the target architecture from the offline foundation.
-The initial CLI has no secret storage, IPC service, enrollment or update execution.
+This document distinguishes implemented M3 Linux components from the remaining
+platform designs. Update execution is not implemented; online enrollment is
+implemented for the Linux server and the CLI client (see below).
 
 ## Privileges and IPC
 
 The Linux server broker is implemented as described in
-[server.md](server.md#privileges-every-one) and [enrollment.md](enrollment.md#privileged-broker);
-the client broker and the Windows service are still requirements, listed below.
+[server.md](server.md#privileges-every-one). The Linux client broker is implemented
+as described in [client.md](client.md#privileges-and-files); the Windows service and
+online-enrollment listener (an unprivileged `lovpn-server enroll serve`, no capabilities)
+is described in [enrollment.md](enrollment.md).
 
 
-Linux uses a dedicated management identity plus a narrow network broker with
-`CAP_NET_ADMIN` only where practical. Firewall/routing authority remains powerful;
-capabilities are not a sandbox against a compromised broker. systemd policy must
+Linux uses narrow brokers with `CAP_NET_ADMIN` and, for client socket ownership,
+`CAP_CHOWN` only where needed. Firewall/routing authority remains powerful;
+capabilities are not a sandbox against a compromised broker. The M3 client unit uses
+NoNewPrivileges, protected system/home paths, private temporary/device views, bounded
+address families/syscalls and explicit writable state. systemd policy must
 include NoNewPrivileges, read-only system paths, private temporary storage, bounded
 address families/syscalls and explicit writable state paths. Do not enable
 PrivateNetwork on a service that must manage host networking. Avoid blanket root
@@ -30,10 +35,12 @@ Implemented: `lovpn-keys` (role-typed server/client keys, OS-random generation v
 `getrandom`, X25519 via `x25519-dalek`, `zeroize` on drop, redacting `Debug`, strict
 canonical-base64 parsing, rejection of low-order/non-canonical public keys and
 unclamped private keys), Unix key files (0600, exclusive create, no symlinks/hard
-links, owner and parent-directory checks) and the offline enrollment flow. Not
-implemented: Windows protected storage, server key rotation, PSK delivery, management
-credentials, online enrollment tokens, the broker. The rest of this section is the
-requirement for those. Residual risks: a moved key value can leave an unscrubbed copy;
+links, owner and parent-directory checks), offline enrollment, and the Linux client
+broker's root-owned profile/key store. Windows: the service creates the client key, seals it with DPAPI (machine scope) in an
+ACL-protected directory and never shows it ([windows.md](windows.md)). Not implemented:
+server key rotation, PSK delivery and management credentials. Online enrollment tokens
+(SHA-256 digest at rest, 256-bit secrets, single use) are implemented.
+Residual risks: a moved key value can leave an unscrubbed copy;
 a pasted private key is shape-indistinguishable from a public key ~1/16 of the time,
 so the server CLI asks for confirmation when the shape matches.
 
@@ -50,8 +57,9 @@ key to the administrator. The administrator adds a peer and returns a public
 profile containing a server key, literal endpoint, addresses and policy. Verify
 the server key out of band. A QR code is a transport, not authentication.
 
-Optional online enrollment uses TLS 1.3 with an independently pinned certificate
-or SPKI distributed out of band. Use a mature TLS stack; never disable certificate
+Optional online enrollment (implemented, [enrollment.md](enrollment.md)) uses TLS 1.3
+with an independently pinned certificate (SHA-256 over the certificate, distributed out
+of band; SPKI pinning is not used). Use a mature TLS stack; never disable certificate
 validation for a self-signed server. A minimum 256-bit random bearer token expires,
 is revocable, is stored only as a cryptographic digest, and is consumed in the same
 durable transaction as peer creation. Request bodies, URLs and access logs must not
@@ -66,14 +74,14 @@ accept old credentials. Server WireGuard and TLS identity rotation are separate.
 
 ## Storage and configuration
 
-Target locations (not created by the foundation CLI):
+Implemented Linux locations (the offline foundation CLI alone does not create them):
 
 | Data | Linux | Windows |
 | --- | --- | --- |
-| Public user profiles/settings | `$XDG_CONFIG_HOME/lovpn` | `%LOCALAPPDATA%\LoVPN` |
-| Broker policy, keys, journal | `/var/lib/lovpn`, config `/etc/lovpn` | `%PROGRAMDATA%\LoVPN`, service-only ACL |
-| Runtime IPC | `/run/lovpn` | ACL-restricted named pipe |
-| Logs | rate-limited journal, no packet metadata | restricted local event log |
+| Public client profiles/settings | `/var/lib/lovpn-client/profiles` (root-owned broker store) | `%ProgramData%\LoVPN\profiles` (SYSTEM/Administrators only) |
+| Broker policy, keys, journal | `/var/lib/lovpn-client` (client), `/var/lib/lovpn` (server) | `%ProgramData%\LoVPN`: DPAPI-sealed `*.key`, `session.json`, SYSTEM/Administrators ACL |
+| Runtime IPC | `/run/lovpn-client/broker.sock` | `\\.\pipe\lovpn-client`, DACL + token check |
+| Logs | rate-limited journal, no packet metadata | `%ProgramData%\LoVPN\logs\service.log` (1 MiB rotation), readable via `lovpn logs` |
 | Diagnostic export | explicit user-selected destination | explicit user-selected destination |
 
 Secret directories are mode 0700 and files 0600, owner-checked. Use systemd
@@ -86,8 +94,11 @@ Privileged persistence must use handle-relative, no-follow directory traversal,
 ownership/mode/ACL validation, private temporary files on the same filesystem,
 flush → atomic rename → directory flush. Locks plus expected-generation checks
 prevent lost updates. Symlink, reparse-point, hard-link, power-loss and concurrent
-write tests block release. The foundation does not implement these writes and
-must not be used as a privileged file loader. Unknown schema versions fail;
+write tests block release. The M3 client implements bounded root-owned profile and
+session writes with ownership/mode checks, atomic replacement and no-follow key and
+session-record opens; its route cleanup also inspects the fixed policy table and
+refuses to flush foreign routes. Real-host power-loss and upgrade matrices remain
+open. Unknown schema versions fail;
 there is no automatic downgrade or speculative migration. Add explicit tested
 migrations only when a second supported schema exists.
 

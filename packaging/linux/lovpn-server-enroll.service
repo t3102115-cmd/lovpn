@@ -1,0 +1,45 @@
+[Unit]
+Description=LoVPN online-enrollment listener (pinned TLS, one-time tokens)
+After=network.target lovpn-server-broker.service
+Wants=lovpn-server-broker.service
+
+[Service]
+Type=simple
+User=lovpn-server
+# Nothing listens until the administrator chooses an address, for example
+#   echo 'LOVPN_ENROLL_LISTEN=203.0.113.5:51821' | sudo tee /etc/lovpn-server/enroll.env
+# Without it the command line below is incomplete and the service fails closed.
+EnvironmentFile=-/etc/lovpn-server/enroll.env
+ExecStart=/usr/local/bin/lovpn-server --state-dir /var/lib/lovpn-server --socket /run/lovpn-server/broker.sock enroll serve --listen ${LOVPN_ENROLL_LISTEN}
+Restart=on-failure
+RestartSec=2
+UMask=0077
+
+# Network-facing, so no capability at all: it only binds a TCP port above 1023,
+# writes the service user's state and asks the broker (over its Unix socket) to apply.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=/var/lib/lovpn-server
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# PrivateNetwork is intentionally NOT set: the listener must be reachable.
+
+[Install]
+WantedBy=multi-user.target

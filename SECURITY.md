@@ -1,8 +1,10 @@
 # Security policy
 
 LoVPN is early-stage software. The current repository is not a production VPN and
-must not be relied on for traffic-leak prevention. The implemented foundation has no
-privileged service, live enrollment, GUI, update executor or production key store.
+must not be relied on for traffic-leak prevention on an untested host. M3 includes
+Linux privileged brokers and a first Windows client service and window, but not a
+production service, live enrollment, update executor or tray. The Windows client was run
+in one VM only ([`docs/windows.md`](docs/windows.md)).
 
 ## Supported versions
 
@@ -32,8 +34,8 @@ to bypass a user's kill switch, access a server, or exfiltrate credentials.
 
 ## Architecture overview
 
-The target data plane is WireGuard. The target control plane is a local,
-caller-authenticated IPC service with a small privileged broker for network, firewall
+The data plane is WireGuard. The Linux control plane now has local,
+caller-authenticated IPC services with small privileged brokers for network, firewall
 and resolver operations. The GUI and CLI are not intended to run with root or
 Administrator privileges. Public profiles are bounded and reject unknown fields,
 executable hooks, unsupported routes and ambiguous DNS/IPv6 policy.
@@ -61,14 +63,38 @@ protect applications that implement their own network stack, or automatically
 handle unsupported DNS/IPv6/OS states. A self-hosted VPN transfers trust; it does
 not remove it. See [`docs/threat-model.md`](docs/threat-model.md).
 
-Current state (M2b): the only privileged component is the Linux server broker
-(`lovpn-server broker`), which applies server state and has been tested in disposable
-namespaces but never run as a systemd service on a real host. There is no client
-lifecycle, no client kill switch/DNS/IPv6 protection and no Windows or GUI component.
-Online enrollment is a design only. See [`docs/server.md`](docs/server.md).
+Current state (M3): Linux has a root `lovpn-server` broker and a root `lovpn-clientd`
+broker. The client owns a marked nftables kill switch, full IPv4 policy routing,
+WireGuard lifecycle and an optional systemd-resolved link configuration. Both service
+units have static checks, namespace evidence and a Fedora 44 virtual-machine gate
+(real systemd services, enforcing SELinux, real systemd-resolved, NetworkManager restart
+and DHCP renewal, real reboot ordering and ACPI suspend/resume, with leaks measured from
+outside the guest). Other distributions, physical NICs, several uplinks, rogue DHCP/RA and
+NetworkManager-managed tunnel interfaces remain untested. IPv6 endpoints,
+IPv6 tunnel mode, split routing, LAN bypass and NDP/RA are rejected or unavailable;
+unmanaged DNS is reported degraded. The controlling owner can explicitly lift the
+client kill switch, so it is not a defense against that account or root. Online
+enrollment (pinned TLS, one-time tokens) is implemented for the Linux server and the CLI; the Windows client and window are verified only as described
+in [`docs/windows.md`](docs/windows.md) and [`docs/ui.md`](docs/ui.md). See [`docs/client.md`](docs/client.md)
+and [`docs/server.md`](docs/server.md).
 
 ## Security claims
 
 Do not describe LoVPN as unhackable, anonymous or military-grade. A feature may be
 called protected only after its implementation and independent failure/leak tests
 support that exact claim on a named platform and configuration.
+
+## Windows and the window: additional trust notes
+
+- Windows runs the service as LocalSystem with the `unsafe` code confined to the
+  `lovpn-win` crate. Administrators and SYSTEM are inside the trust boundary: the DPAPI
+  machine-scope key, the state directory and the WFP policy are protected from other
+  users, not from administrators. A compromised service, Administrator account or kernel
+  is out of scope.
+- The WireGuardNT DLL is pinned by SHA-256 and signature and loaded from an
+  Administrator-only directory; the installer refuses anything else. Updating it requires
+  changing the pin in source after review.
+- `lovpn-ui` is unprivileged and loopback-only; it authenticates the browser with a
+  per-launch secret, checks `Host` and `Origin`, and sends a strict CSP. A malicious
+  process running as the **same user** can still read the window's URL from its command
+  line or process memory and drive the same actions that user can already take.

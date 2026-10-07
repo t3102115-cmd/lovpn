@@ -218,10 +218,7 @@ fn export_to_file_never_overwrites() {
     let dir = tmp();
     let state = dir.path().join("state");
     assert!(run(&state, &setup_args("--write-state")).status.success());
-    let key = ClientPrivateKey::generate()
-        .unwrap()
-        .public_key()
-        .to_string();
+    let key = plain_client().public_key().to_string();
     assert!(
         run(
             &state,

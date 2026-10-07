@@ -1,8 +1,8 @@
 //! Strict, public-only configuration. No filesystem access or secret storage.
 //! Deserialization is not validation: consumers must call [`ClientConfig::validate`].
 use ipnet::IpNet;
-use serde::Deserialize;
-use std::net::{IpAddr, SocketAddr};
+use serde::{Deserialize, Serialize};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 mod error;
 mod validate;
@@ -44,6 +44,22 @@ pub struct Tunnel {
 #[serde(deny_unknown_fields)]
 pub struct Dns {
     pub servers: Vec<IpAddr>,
+    /// Additional suffix-specific resolvers through the tunnel (Windows NRPT).
+    /// Baseline tunnel DNS remains mandatory; this never enables physical-uplink DNS.
+    #[serde(default)]
+    pub scopes: Vec<DnsScope>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DnsScope {
+    pub namespace: String,
+    pub servers: Vec<Ipv4Addr>,
+}
+
+/// Also used to validate persisted NRPT intent before recovery or restoration.
+pub fn validate_dns_scopes(scopes: &[DnsScope]) -> Result<(), ConfigError> {
+    validate::validate_dns_scopes(scopes)
 }
 
 #[derive(Clone, Deserialize)]

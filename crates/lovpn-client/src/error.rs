@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use lovpn_sys::exec::ExecError;
 use std::{error::Error, fmt};
 
@@ -18,9 +19,12 @@ pub enum ClientError {
     ForeignInterface,
     ForeignTable,
     ForeignRule,
+    ForeignRoute,
     ToolMissing,
     CommandFailed(&'static str),
     NotConnected,
+    SwitchWhileConnected,
+    UnsupportedOperation,
     NoProfileSelected,
     Record,
     Storage,
@@ -44,9 +48,12 @@ impl ClientError {
             Self::ForeignInterface => "connect.foreign-interface",
             Self::ForeignTable => "connect.foreign-table",
             Self::ForeignRule => "connect.foreign-rule",
+            Self::ForeignRoute => "connect.foreign-route",
             Self::ToolMissing => "connect.tool-missing",
             Self::CommandFailed(_) => "connect.command-failed",
             Self::NotConnected => "session.not-connected",
+            Self::SwitchWhileConnected => "session.switch-while-connected",
+            Self::UnsupportedOperation => "unsupported.platform",
             Self::NoProfileSelected => "session.no-profile",
             Self::Record => "session.record",
             Self::Storage => "profile.storage",
@@ -72,9 +79,12 @@ impl fmt::Display for ClientError {
             Self::ForeignInterface => f.write_str("An interface with the LoVPN name exists but LoVPN did not create it (or it is not WireGuard). It was not modified."),
             Self::ForeignTable => f.write_str("An nftables table with LoVPN's name exists without the LoVPN ownership marker. It was not modified."),
             Self::ForeignRule => f.write_str("A routing rule at LoVPN's reserved priority exists and is not LoVPN's. It was not modified."),
+            Self::ForeignRoute => f.write_str("The LoVPN policy-routing table contains a route LoVPN did not install. It was not modified."),
             Self::ToolMissing => f.write_str("A required system tool (ip, wg, nft or resolvectl) was not found in a standard location."),
             Self::CommandFailed(step) => write!(f, "A network configuration step failed ({step}). Changes were rolled back where possible; the kill switch, if armed, stays armed. Run diagnostics."),
             Self::NotConnected => f.write_str("There is no active connection."),
+            Self::UnsupportedOperation => f.write_str("This operation is not available on this platform. See docs/client.md."),
+            Self::SwitchWhileConnected => f.write_str("A connection is active. Run `lovpn connect <name>` to switch servers directly, or disconnect first."),
             Self::NoProfileSelected => f.write_str("No profile was chosen and none was used before."),
             Self::Record => f.write_str("The service's own state record could not be read or written safely."),
             Self::Storage => f.write_str("Profile storage input/output failed; nothing was partially kept."),
@@ -85,6 +95,7 @@ impl fmt::Display for ClientError {
 
 impl Error for ClientError {}
 
+#[cfg(unix)]
 impl From<ExecError> for ClientError {
     fn from(error: ExecError) -> Self {
         match error {

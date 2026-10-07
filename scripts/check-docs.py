@@ -7,7 +7,7 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 errors = []
-for name in ["architecture", "threat-model", "security-model", "networking", "development", "roadmap", "feature-matrix", "server", "enrollment"]:
+for name in ["architecture", "threat-model", "security-model", "networking", "development", "roadmap", "feature-matrix", "server", "enrollment", "client", "troubleshooting"]:
     path = ROOT / "docs" / f"{name}.md"
     if not path.is_file() or path.stat().st_size == 0:
         errors.append(f"Missing or empty document: docs/{name}.md")

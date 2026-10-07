@@ -746,3 +746,61 @@ fn resolve_user_reads_passwd_without_nss() {
     assert_eq!(broker::resolve_user("root"), Some(0));
     assert_eq!(broker::resolve_user("definitely-not-a-user-lovpn"), None);
 }
+
+#[test]
+fn apply_on_start_restores_persisted_state_after_a_reboot_and_keeps_the_rollback_guard() {
+    let env = env();
+    env.add_peer("laptop");
+    let socket = env._dir.path().join("start.sock");
+    let mut config = BrokerConfig::new(
+        env.state_dir.clone(),
+        me(),
+        env.broker_dir.clone(),
+        socket.clone(),
+    );
+    config.ip_forward_path = env.ip_forward.clone();
+    let broker = Broker::bind(config, Arc::new(env.fake.clone())).unwrap();
+    // A fresh boot: no interface, no tables. Starting the broker brings the server back.
+    assert!(env.fake.host().interface.is_none());
+    assert!(broker.apply_on_start());
+    {
+        let host = env.fake.host(); // a guard: must not be held across the next apply
+        assert!(host.interface.is_some() && host.up && host.peers.len() == 1);
+        assert_eq!(host.tables.len(), 2);
+    }
+
+    // The anti-rollback record still applies at startup: an older state is refused and
+    // the host is left as it was.
+    let older = env.state();
+    env.add_peer("phone");
+    assert!(broker.apply_on_start());
+    let newer_generation = env.state().generation;
+    std::fs::write(
+        env.state_dir.join("state.json"),
+        serde_json::to_vec(&older).unwrap(),
+    )
+    .unwrap();
+    std::fs::set_permissions(
+        env.state_dir.join("state.json"),
+        std::fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    assert!(!broker.apply_on_start());
+    assert_eq!(
+        env.fake.host().peers.len(),
+        2,
+        "the refused rollback changed nothing"
+    );
+    assert!(newer_generation > older.generation);
+}
+
+#[test]
+fn apply_on_start_without_state_is_logged_not_fatal() {
+    let env = env();
+    std::fs::remove_file(env.state_dir.join("state.json")).unwrap();
+    let socket = env._dir.path().join("empty.sock");
+    let config = BrokerConfig::new(env.state_dir.clone(), me(), env.broker_dir.clone(), socket);
+    let broker = Broker::bind(config, Arc::new(env.fake.clone())).unwrap();
+    assert!(!broker.apply_on_start());
+    assert!(env.fake.mutating().is_empty());
+}

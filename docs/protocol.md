@@ -11,7 +11,7 @@ WireGuard's cryptographic protocol.
 | --- | --- | --- |
 | Data | WireGuard UDP and kernel/maintained platform implementation | Selected; isolated kernel tests only |
 | Public profile | Versioned bounded TOML containing endpoint, public server key, tunnel addresses, routes, DNS and explicit policy | Implemented offline; no private keys |
-| Local control | Authenticated Unix socket / Windows named pipe to a small privileged broker | Planned; no daemon yet |
+| Local control | Authenticated Unix socket / Windows named pipe to a small privileged broker | Linux server and client Unix-socket brokers implemented; Windows named pipe planned |
 | Optional enrollment | Offline public-key exchange first; future TLS 1.3 endpoint with out-of-band pin and one-time token | Planned; never required for core |
 | Update metadata | Future signed, expiring, anti-rollback metadata | Planned; no updater |
 
@@ -45,8 +45,8 @@ implemented; the online design is in [enrollment.md](enrollment.md).
 6. The broker verifies tunnel, route, resolver, firewall and handshake observations
    before exposing a Protected state.
 
-Future online enrollment tokens are bearer capabilities only during their short
-validity window. Store only a digest server-side; bind redemption to the device
+Online enrollment tokens (implemented, see enrollment.md) are bearer capabilities only
+during their short validity window. Store only a digest server-side; bind redemption to the device
 public key; consume atomically; rate-limit and never log them. A QR code is a
 transport encoding, not an authentication factor. Never transmit the device private
 key.

@@ -1,4 +1,4 @@
-use crate::{ClientConfig, ConfigError, Ipv6Mode, RoutingMode, SCHEMA_VERSION};
+use crate::{ClientConfig, ConfigError, DnsScope, Ipv6Mode, RoutingMode, SCHEMA_VERSION};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use ipnet::IpNet;
 use std::net::{IpAddr, SocketAddr};
@@ -140,6 +140,17 @@ impl ClientConfig {
     }
 
     fn validate_dns(&self) -> Result<(), ConfigError> {
+        validate_dns_scopes(&self.dns.scopes)?;
+        for scope in &self.dns.scopes {
+            for server in &scope.servers {
+                let ip = IpAddr::V4(*server);
+                if ip == self.profile.endpoint.ip()
+                    || !self.tunnel.routes.iter().any(|route| route.contains(&ip))
+                {
+                    return Err(ConfigError::DnsRoute);
+                }
+            }
+        }
         let servers = &self.dns.servers;
         if servers.is_empty() || servers.len() > 4 {
             return Err(ConfigError::Dns);
@@ -162,6 +173,42 @@ impl ClientConfig {
         }
         Ok(())
     }
+}
+
+pub(crate) fn validate_dns_scopes(scopes: &[DnsScope]) -> Result<(), ConfigError> {
+    if scopes.len() > 32 {
+        return Err(ConfigError::Dns);
+    }
+    for (index, scope) in scopes.iter().enumerate() {
+        let domain = scope.namespace.strip_prefix('.').ok_or(ConfigError::Dns)?;
+        if domain.len() > 253
+            || !domain.contains('.')
+            || domain.split('.').any(|label| {
+                label.is_empty()
+                    || label.len() > 63
+                    || label.starts_with('-')
+                    || label.ends_with('-')
+                    || !label
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            })
+            || scopes[..index].iter().any(|other| {
+                scope.namespace.ends_with(&other.namespace)
+                    || other.namespace.ends_with(&scope.namespace)
+            })
+        {
+            return Err(ConfigError::Dns);
+        }
+        if scope.servers.is_empty()
+            || scope.servers.len() > 8
+            || scope.servers.iter().enumerate().any(|(i, server)| {
+                !is_unicast(IpAddr::V4(*server)) || scope.servers[..i].contains(server)
+            })
+        {
+            return Err(ConfigError::Dns);
+        }
+    }
+    Ok(())
 }
 
 fn overlaps(first: IpNet, second: IpNet) -> bool {

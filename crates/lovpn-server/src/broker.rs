@@ -156,6 +156,19 @@ impl Broker {
         })
     }
 
+    /// Re-apply the persisted state once, as `lovpn-server apply` would, so that a rebooted
+    /// server serves its peers again without anyone logging in. It acts only on state the
+    /// administrator already committed and still enforces the anti-rollback record; a
+    /// missing state (fresh install) or any refusal is logged, never fatal.
+    pub fn apply_on_start(&self) -> bool {
+        let response = self.dispatch(&Request {
+            op: Op::Apply,
+            expected_generation: None,
+        });
+        log("startup-apply", Some(Op::Apply), None, &response.code);
+        response.ok
+    }
+
     /// Serve forever, one connection at a time.
     pub fn serve(&self) -> ! {
         loop {

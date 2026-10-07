@@ -1,9 +1,112 @@
 #![allow(clippy::unwrap_used)]
 
 use lovpn_config::{Ipv6Mode, KillSwitchMode, RoutingMode, parse};
-use lovpn_firewall::{FirewallError, TABLE_NAME, WIREGUARD_FWMARK, compile};
+use lovpn_firewall::{
+    FirewallError, OWNER_COMMENT, TABLE_NAME, WIREGUARD_FWMARK, compile, compile_owned,
+};
 
 const SAMPLE: &str = include_str!("../../../examples/client.toml");
+
+#[test]
+fn owned_policy_replaces_only_its_table_and_stamps_exact_generation() {
+    let config = parse(SAMPLE).unwrap();
+    for generation in [0, 1, 42, u64::MAX] {
+        let plan = compile_owned(&config, generation).unwrap();
+        assert_eq!(
+            plan.ruleset(),
+            compile_owned(&config, generation).unwrap().ruleset()
+        );
+        let statements: Vec<_> = plan
+            .ruleset()
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .collect();
+        assert_eq!(statements[0], format!("add table inet {TABLE_NAME}"));
+        assert_eq!(statements[1], format!("delete table inet {TABLE_NAME}"));
+        assert_eq!(
+            statements[2],
+            format!(
+                "add table inet {TABLE_NAME} {{ comment \"{OWNER_COMMENT} gen={generation}\"; }}"
+            )
+        );
+        assert_eq!(plan.ruleset().matches("comment \"").count(), 1);
+        assert!(
+            statements
+                .iter()
+                .all(|line| line.contains(&format!("inet {TABLE_NAME}")))
+        );
+        assert!(!plan.ruleset().contains("flush ruleset"));
+        let preview = compile(&config).unwrap();
+        // Installation metadata cannot broaden the preview's packet policy.
+        assert_eq!(
+            plan.ruleset()
+                .lines()
+                .filter(|line| line.starts_with("add rule"))
+                .collect::<Vec<_>>(),
+            preview
+                .ruleset()
+                .lines()
+                .filter(|line| line.starts_with("add rule"))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(plan.reset_ruleset(), preview.reset_ruleset());
+    }
+}
+
+#[test]
+fn dhcp_exception_is_ipv4_client_only_with_default_drop_retained() {
+    for ipv6 in [Ipv6Mode::Block, Ipv6Mode::Tunnel] {
+        let mut config = parse(SAMPLE).unwrap();
+        config.tunnel.ipv6 = ipv6;
+        if ipv6 == Ipv6Mode::Tunnel {
+            config.tunnel.addresses.push("fd66::2/128".parse().unwrap());
+            config.tunnel.routes.push("::/0".parse().unwrap());
+        }
+        for plan in [
+            compile(&config).unwrap(),
+            compile_owned(&config, 7).unwrap(),
+        ] {
+            let dhcp: Vec<_> = plan
+                .ruleset()
+                .lines()
+                .filter(|line| line.starts_with("add rule") && line.contains("udp sport"))
+                .collect();
+            assert_eq!(
+                dhcp,
+                [format!(
+                    "add rule inet {TABLE_NAME} output meta nfproto ipv4 udp sport 68 udp dport 67 counter accept"
+                )]
+            );
+            assert_eq!(plan.ruleset().matches("policy drop;").count(), 2);
+            assert!(!plan.ruleset().contains("udp dport 546"));
+            assert!(!plan.ruleset().contains("udp dport 547"));
+            assert!(!plan.ruleset().contains("icmpv6"));
+            assert!(!plan.ruleset().contains("ip daddr 192.168."));
+        }
+    }
+}
+
+#[test]
+fn owned_policy_revalidates_and_refuses_unsupported_modes() {
+    let mut config = parse(SAMPLE).unwrap();
+    config.firewall.kill_switch = KillSwitchMode::Off;
+    assert_eq!(
+        compile_owned(&config, 1).err(),
+        Some(FirewallError::Disabled)
+    );
+    config.firewall.kill_switch = KillSwitchMode::Strict;
+    config.profile.endpoint = "[2001:db8::1]:51820".parse().unwrap();
+    assert_eq!(
+        compile_owned(&config, 1).err(),
+        Some(FirewallError::Ipv6UnderlayUnsupported)
+    );
+    config.profile.endpoint = "192.0.2.1:51820".parse().unwrap();
+    config.tunnel.interface = "x\"; flush ruleset".into();
+    assert_eq!(
+        compile_owned(&config, 1).err(),
+        Some(FirewallError::InvalidConfig)
+    );
+}
 
 #[test]
 fn policy_is_deterministic_scoped_and_has_no_existing_flow_bypass() {

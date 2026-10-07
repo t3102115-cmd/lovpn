@@ -4,6 +4,11 @@ use lovpn_config::{ClientConfig, MAX_CONFIG_BYTES};
 use std::{fs::File, io::Read, path::Path};
 
 pub fn load(path: &Path) -> Result<ClientConfig, AppError> {
+    lovpn_config::parse(&read_text(path)?).map_err(Into::into)
+}
+
+/// Read a bounded, permission-checked public profile as text (not yet validated).
+pub fn read_text(path: &Path) -> Result<String, AppError> {
     let invalid_file = || {
         AppError::new(
             "config.file",
@@ -36,9 +41,8 @@ pub fn load(path: &Path) -> Result<ClientConfig, AppError> {
     if contents.len() > MAX_CONFIG_BYTES {
         return Err(lovpn_config::ConfigError::TooLarge.into());
     }
-    let text = std::str::from_utf8(&contents)
-        .map_err(|_| AppError::new("config.encoding", "Configuration must be UTF-8 text."))?;
-    lovpn_config::parse(text).map_err(Into::into)
+    String::from_utf8(contents)
+        .map_err(|_| AppError::new("config.encoding", "Configuration must be UTF-8 text."))
 }
 
 #[cfg(unix)]

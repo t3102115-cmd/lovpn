@@ -28,6 +28,12 @@ pub enum ServerError {
     Exists,
     Export,
     Unsupported,
+    Clock,
+    Ttl,
+    TokenLimit,
+    TokenNotFound,
+    TokenState,
+    Denied,
 }
 
 impl ServerError {
@@ -58,6 +64,12 @@ impl ServerError {
             Self::Exists => "state.exists",
             Self::Export => "server.export",
             Self::Unsupported => "server.unsupported",
+            Self::Clock => "enroll.clock",
+            Self::Ttl => "enroll.ttl",
+            Self::TokenLimit => "enroll.token-limit",
+            Self::TokenNotFound => "enroll.token-not-found",
+            Self::TokenState => "enroll.token-state",
+            Self::Denied => "enroll.denied",
         }
     }
 }
@@ -90,6 +102,12 @@ impl fmt::Display for ServerError {
             Self::Exists => "Server state already exists; LoVPN will not overwrite it or its identity key.",
             Self::Export => "The generated client profile failed validation; nothing was exported.",
             Self::Unsupported => "This operation is not implemented in this build.",
+            Self::Clock => "The system clock is earlier than the last time recorded in the server state; refusing to issue or redeem tokens until it is corrected.",
+            Self::Ttl => "Token lifetime must be from 1 second to 24 hours.",
+            Self::TokenLimit => "Too many enrollment token records (256); revoke or wait for old ones to expire.",
+            Self::TokenNotFound => "No enrollment token has that id.",
+            Self::TokenState => "Only a pending token can be revoked. To remove a device that already enrolled, revoke its peer.",
+            Self::Denied => "The enrollment was refused.",
         })
     }
 }

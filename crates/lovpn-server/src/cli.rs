@@ -67,6 +67,11 @@ enum Command {
     },
     /// Run the privileged broker (as root, normally from systemd).
     Broker(BrokerArgs),
+    /// Online enrollment: pinned-TLS one-time tokens (no account, no cloud).
+    Enroll {
+        #[command(subcommand)]
+        command: EnrollCommand,
+    },
     /// Sanitized local report; contains no keys and probes nothing.
     Diagnostics,
     /// Inspect the server firewall policy compiled from state.
@@ -95,6 +100,10 @@ struct BrokerArgs {
     /// Broker-private directory (root-owned 0700) holding the applied-generation record.
     #[arg(long, default_value = "/var/lib/lovpn-broker")]
     broker_dir: PathBuf,
+    /// Apply the persisted state once at startup (what `lovpn-server apply` does), so a
+    /// rebooted server comes back by itself. Off by default for manual runs.
+    #[arg(long)]
+    apply_on_start: bool,
 }
 
 #[derive(Args)]
@@ -176,6 +185,61 @@ enum PeerCommand {
         #[arg(long)]
         apply: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum EnrollCommand {
+    /// Create the enrollment TLS identity once and print its pin. Never overwrites.
+    TlsInit,
+    /// Print the pin (SHA-256 of the certificate) to hand to clients out of band.
+    Pin,
+    /// Replace the TLS identity with a new one and print the new pin. The old pin stops
+    /// working immediately (a running listener picks the change up by itself); pending
+    /// tokens stay valid. Rotate between enrollment windows.
+    TlsRotate {
+        /// Required: confirms clients holding the old pin will be refused.
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Manage one-time enrollment tokens.
+    Token {
+        #[command(subcommand)]
+        command: TokenCommand,
+    },
+    /// Run the enrollment listener (as the service user, never root). Blocks.
+    Serve(ServeArgs),
+}
+
+#[derive(Subcommand)]
+enum TokenCommand {
+    /// Create a token for a new device and print it ONCE. It is not stored.
+    Create {
+        /// Name the peer will get when the token is redeemed.
+        #[arg(long)]
+        name: String,
+        /// Lifetime in minutes (1 to 1440; default 15).
+        #[arg(long, default_value_t = 15)]
+        ttl_minutes: u64,
+    },
+    /// List tokens (ids and status only; never the token or its digest).
+    List,
+    /// Revoke a pending token by id.
+    Revoke { id: String },
+}
+
+#[derive(Args)]
+struct ServeArgs {
+    /// Address to listen on, e.g. 0.0.0.0:51821. Open this TCP port in your own
+    /// firewall; LoVPN does not change it.
+    #[arg(long)]
+    listen: SocketAddr,
+    /// Do not ask the broker to apply new peers; the administrator runs `apply`.
+    #[arg(long)]
+    no_apply: bool,
+    #[arg(long, default_value = "lovpn0")]
+    client_interface: String,
+    #[arg(long, value_enum, default_value = "strict")]
+    kill_switch: Kill,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -341,6 +405,9 @@ fn run_broker(
         "{}",
         json!({"event": "broker-listening", "owner_uid": owner_uid})
     );
+    if args.apply_on_start {
+        broker.apply_on_start();
+    }
     broker.serve()
 }
 
@@ -374,6 +441,7 @@ fn run(cli: Cli) -> Result<Report, Failure> {
             })
         }
         Command::Status { live } => status(&dir, &socket, live),
+        Command::Enroll { command } => enroll(&dir, &socket, command),
         Command::Diagnostics => status(&dir, &socket, false),
         Command::Firewall { command } => firewall(&dir, &socket, command),
         Command::Reset { plan } => {
@@ -618,6 +686,172 @@ fn peer(
             })
         }
     }
+}
+
+fn tls_pin(store: &Store) -> Result<lovpn_enroll::tls::Pin, Failure> {
+    let (certificate, _key) = store.tls_identity().map_err(|_| Failure {
+        code: "enroll.no-identity".into(),
+        message:
+            "No enrollment TLS identity exists. Create it once with `lovpn-server enroll tls-init`."
+                .into(),
+    })?;
+    Ok(lovpn_enroll::tls::Pin::of_certificate(&certificate))
+}
+
+fn enroll(
+    dir: &std::path::Path,
+    socket: &std::path::Path,
+    command: EnrollCommand,
+) -> Result<Report, Failure> {
+    let store = Store::open(dir)?;
+    match command {
+        EnrollCommand::TlsInit => {
+            let identity = lovpn_enroll::tls::generate_identity().map_err(|e| Failure {
+                code: e.code().into(),
+                message: e.to_string(),
+            })?;
+            store.init_tls_identity(&identity.certificate_der, &identity.private_key_der)?;
+            let pin = lovpn_enroll::tls::Pin::of_certificate(&identity.certificate_der);
+            Ok(Report {
+                text: format!(
+                    "Created the enrollment TLS identity (private key stays in the state directory, mode 0600).\nPin: {pin}\nGive this pin to each client over a channel you trust. It is not secret, but it must not be attacker-controlled."
+                ),
+                data: json!({"schema_version": 1, "ok": true, "pin": pin.to_string()}),
+            })
+        }
+        EnrollCommand::TlsRotate { yes } => {
+            if !yes {
+                return Err(Failure {
+                    code: "enroll.rotate-confirm".into(),
+                    message: "Rotation invalidates the current pin at once: clients that have it will be refused until you give them the new one. Repeat with --yes to proceed.".into(),
+                });
+            }
+            let old = tls_pin(&store)?;
+            let identity = lovpn_enroll::tls::generate_identity().map_err(|e| Failure {
+                code: e.code().into(),
+                message: e.to_string(),
+            })?;
+            store.rotate_tls_identity(&identity.certificate_der, &identity.private_key_der)?;
+            let pin = lovpn_enroll::tls::Pin::of_certificate(&identity.certificate_der);
+            Ok(Report {
+                text: format!(
+                    "Rotated the enrollment TLS identity.\nOld pin (now invalid): {old}\nNew pin: {pin}\nA running listener switches over by itself. Give clients the new pin; pending tokens are still valid."
+                ),
+                data: json!({"schema_version": 1, "ok": true, "old_pin": old.to_string(), "pin": pin.to_string()}),
+            })
+        }
+        EnrollCommand::Pin => {
+            let pin = tls_pin(&store)?;
+            Ok(Report {
+                text: pin.to_string(),
+                data: json!({"schema_version": 1, "ok": true, "pin": pin.to_string()}),
+            })
+        }
+        EnrollCommand::Token { command } => match command {
+            TokenCommand::Create { name, ttl_minutes } => {
+                let pin = tls_pin(&store)?;
+                let token = lovpn_enroll::token::Token::generate().map_err(|e| Failure {
+                    code: e.code().into(),
+                    message: e.to_string(),
+                })?;
+                let ttl = ttl_minutes.checked_mul(60).ok_or(ServerError::Ttl)?;
+                let (generation, info) =
+                    store.update(None, |state| state.issue_token(&token, &name, ttl, now()))?;
+                let text_token = token.expose();
+                Ok(Report {
+                    text: format!(
+                        "Enrollment token for peer '{name}' (valid {ttl_minutes} min, single use). Shown ONCE; it is not stored:\n{text_token}\nServer pin: {pin}\nGive the client both, over a channel you trust. Token id: {}",
+                        info.id
+                    ),
+                    data: json!({"schema_version": 1, "ok": true, "token": text_token, "token_id": info.id, "peer_name": info.peer_name, "expires_unix": info.expires_unix, "pin": pin.to_string(), "generation": generation}),
+                })
+            }
+            TokenCommand::List => {
+                let state = store.load()?;
+                let rows = state.list_tokens(now());
+                let text = if rows.is_empty() {
+                    "No enrollment tokens.".to_string()
+                } else {
+                    rows.iter()
+                        .map(|t| {
+                            format!(
+                                "{}  {:<9} peer={} expires_unix={}",
+                                t.id, t.status, t.peer_name, t.expires_unix
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                };
+                let data: Vec<Value> = rows
+                    .iter()
+                    .map(|t| json!({"id": t.id, "status": t.status, "peer_name": t.peer_name, "created_unix": t.created_unix, "expires_unix": t.expires_unix, "peer_id": t.peer_id}))
+                    .collect();
+                Ok(Report {
+                    text,
+                    data: json!({"schema_version": 1, "ok": true, "tokens": data}),
+                })
+            }
+            TokenCommand::Revoke { id } => {
+                let (generation, ()) =
+                    store.update(None, |state| state.revoke_token(&id, now()))?;
+                Ok(Report {
+                    text: format!("Revoked token {id}. State generation {generation}."),
+                    data: json!({"schema_version": 1, "ok": true, "generation": generation}),
+                })
+            }
+        },
+        EnrollCommand::Serve(args) => serve_enrollment(store, socket, args),
+    }
+}
+
+fn serve_enrollment(
+    store: Store,
+    socket: &std::path::Path,
+    args: ServeArgs,
+) -> Result<Report, Failure> {
+    if rustix::process::geteuid().is_root() {
+        return Err(Failure {
+            code: "enroll.root".into(),
+            message: "Run the enrollment listener as the unprivileged service user, not root."
+                .into(),
+        });
+    }
+    let options = ExportOptions {
+        client_interface: args.client_interface,
+        kill_switch: match args.kill_switch {
+            Kill::Off => KillSwitchMode::Off,
+            Kill::VpnOnly => KillSwitchMode::VpnOnly,
+            Kill::Strict => KillSwitchMode::Strict,
+        },
+    };
+    let socket = socket.to_path_buf();
+    let apply: lovpn_server::enroll_server::ApplyFn = if args.no_apply {
+        Box::new(|_| false)
+    } else {
+        Box::new(move |generation| apply_now(&socket, generation).is_ok())
+    };
+    let mut enroller = lovpn_server::enroll_server::Enroller::new(store, options, apply)
+        .map_err(|_| Failure {
+            code: "enroll.no-identity".into(),
+            message: "No usable enrollment TLS identity. Create it once with `lovpn-server enroll tls-init`.".into(),
+        })?;
+    let listener = std::net::TcpListener::bind(args.listen).map_err(|_| Failure {
+        code: "enroll.bind".into(),
+        message: "Cannot listen on that address (in use or not permitted).".into(),
+    })?;
+    eprintln!(
+        "{}",
+        json!({"event": "enroll-listening", "pin": enroller.pin().to_string()})
+    );
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    enroller.serve(&listener, &stop).map_err(|_| Failure {
+        code: "enroll.serve".into(),
+        message: "The enrollment listener stopped unexpectedly.".into(),
+    })?;
+    Ok(Report {
+        text: "Enrollment listener stopped.".into(),
+        data: json!({"schema_version": 1, "ok": true}),
+    })
 }
 
 fn status(dir: &std::path::Path, socket: &std::path::Path, live: bool) -> Result<Report, Failure> {

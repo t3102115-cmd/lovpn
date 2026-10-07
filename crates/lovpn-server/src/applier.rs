@@ -14,7 +14,6 @@ use lovpn_firewall::server::{FILTER_TABLE, NAT_TABLE, OWNER_COMMENT};
 use lovpn_keys::ServerPrivateKey;
 pub use lovpn_sys::exec::{Cmd, CmdOutput, ExecError, Program, Runner, SystemRunner};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::{
     collections::BTreeSet,
     fs::OpenOptions,

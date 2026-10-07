@@ -9,14 +9,16 @@ integration layer around it, not to replace its cryptography.
 
 ## Honest status
 
-This repository is an **offline security foundation**, not a production VPN client or
-server. It currently provides:
+This repository is an **M3 implementation slice**, not a production VPN release. It
+currently provides:
 
 - strict schema-v1 public profile parsing with bounded input and sanitized errors;
 - deterministic Linux nftables full-tunnel policy generation for laboratory review;
 - an unprivileged CLI for validation, policy previews, privacy and capability reports;
 - real isolated Linux-kernel tests using WireGuard and nftables;
-- Windows-native Rust build, test and clippy coverage in the available VM;
+- a **Windows client** (service, WireGuardNT, WFP kill switch, DPAPI keys) verified in a Windows 11 VM, see [`docs/windows.md`](docs/windows.md);
+- a **window** (`lovpn-ui`) for Windows and Linux, see [`docs/ui.md`](docs/ui.md);
+- native Windows Rust build, test and clippy coverage;
 - architecture, threat model, security model, networking design and release gates.
 
 - (M2a) WireGuard-compatible key handling with zeroizing, redacting types and
@@ -30,13 +32,26 @@ server. It currently provides:
   tables, with observed drift reporting, firewall repair and scoped teardown. Revocation
   and key rotation take effect on the live interface. Verified end to end with real
   WireGuard, two peers and NAT in a disposable namespace; a hardened systemd unit and
-  an install/uninstall script exist (never run as a real service).
+  an install/uninstall script exist (run as real services in the VM gate).
 
-It does **not** yet include a client that connects: there is no Linux client lifecycle,
-kill switch, DNS or IPv6 protection on the client side, no Windows client, no GUI, no
-online enrollment, and the broker has not been run as a systemd service on a real host.
-The CLIs deliberately report protection as `not-verified`. See
+The M3 slice also includes a Linux `lovpn-clientd` root broker and unprivileged `lovpn`
+CLI with full IPv4 tunnel lifecycle, an owned nftables kill switch, fail-closed policy
+routing, optional systemd-resolved per-link DNS, reconnect/restart recovery and staged
+packaging. The client gate exercises these paths in disposable namespaces, and
+`tests/linux-vm` runs the server broker, the enrollment listener and the client broker as
+**real systemd services** on two Fedora 44 virtual machines (enforcing SELinux, real
+systemd-resolved and NetworkManager, real reboots and ACPI suspend/resume, leaks measured
+from outside the guest; see [`docs/development.md`](docs/development.md#real-host-gate--2026-10-07)).
+
+M3 is still not a production claim: the real-host evidence is one distribution (Fedora 44),
+virtual NICs, one uplink and no IPv6 underlay, hardware Wi-Fi, rogue DHCP/RA or
+Debian/Ubuntu run. M3 rejects IPv6 endpoints and tunnel mode, split routing,
+LAN bypass and NDP/RA; unmanaged DNS is explicitly degraded. The owner can explicitly
+release the kill switch. Online enrollment (pinned TLS, one-time tokens) exists for the Linux server and the CLI
+client ([`docs/enrollment.md`](docs/enrollment.md)). There is no tray icon or updater, and the
+Windows client has only been run in one VM (see [`docs/windows.md`](docs/windows.md#limits-and-what-is-not-evidenced)). See
 [`docs/server.md`](docs/server.md) for the exact boundaries,
+[`docs/client.md`](docs/client.md),
 [`docs/feature-matrix.md`](docs/feature-matrix.md) and
 [`docs/roadmap.md`](docs/roadmap.md).
 
@@ -46,7 +61,7 @@ The CLIs deliberately report protection as `not-verified`. See
 - Zero telemetry and advertising by default; no hidden analytics or crash reporting.
 - Self-hostable on a private LAN or public Internet, once the server milestone lands.
 - WireGuard and established platform cryptography, never a custom VPN protocol.
-- Least privilege: GUI/CLI will use a small authenticated privileged broker.
+- Least privilege: the window and the CLI run as the user and use a small authenticated privileged service.
 - Fail closed for requested protection, with documented recovery paths.
 - No fake toggles: a security control is not exposed as working until implemented,
   tested, documented and integrated.
@@ -85,17 +100,17 @@ policy to a host or remote machine.
 ./scripts/test-networking.sh      # disposable namespaces; Linux only
 ```
 
-The Windows VM has native Rust tests, clippy and release-build coverage. From a native
-PowerShell checkout, use `scripts/build-windows.ps1`. A Linux cross-target check is
-not a Windows service, WFP, driver or leak test. Audit and license checks are described
-in CI and [`docs/development.md`](docs/development.md).
+On Windows, from a native PowerShell checkout, use `scripts/build-windows.ps1`, then
+`scripts/install-client.ps1` (see [`docs/windows.md`](docs/windows.md)). The Windows runtime
+scenario is `tests/windows/vm-e2e.ps1`; a Linux cross-target check is not a Windows test.
+Audit and license checks are described in CI and [`docs/development.md`](docs/development.md).
 
 ## Planned user flow
 
 1. Install the Linux server and review a dry-run setup plan.
 2. Generate a server identity and a device enrollment package.
 3. Import the public profile on a Linux or Windows client; the client key stays local.
-4. Connect after verified routing, DNS and firewall state are observed.
+4. Import and connect after observed routing, DNS and firewall state are reviewed.
 5. Revoke or rotate devices locally; recover or uninstall only LoVPN-owned state.
 
 No email registration is part of that flow. Optional future directory/enrollment
@@ -108,6 +123,7 @@ crates/lovpn-config       bounded public configuration and validation
 crates/lovpn-keys         WireGuard key types, redaction, protected key files
 crates/lovpn-firewall     pure nftables policy compilers (client and server)
 crates/lovpn-server       Linux server state, peers, offline enrollment (lovpn-server)
+crates/lovpn-client       Linux root broker (lovpn-clientd), lifecycle and recovery
 crates/lovpn-cli          offline client CLI (lovpn), incl. identity generation
 tests/networking          disposable kernel enforcement tests
 docs                      architecture, security, networking and roadmap

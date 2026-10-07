@@ -8,7 +8,7 @@ Type=simple
 # State is owned by the unprivileged lovpn-server user; this root-owned broker is the
 # only process that touches interfaces, nftables and forwarding. It reads that state
 # read-only and keeps its own anti-rollback record in /var/lib/lovpn-broker.
-ExecStart=/usr/local/bin/lovpn-server --state-dir /var/lib/lovpn-server --socket /run/lovpn-server/broker.sock broker --owner-user lovpn-server --broker-dir /var/lib/lovpn-broker
+ExecStart=/usr/local/bin/lovpn-server --state-dir /var/lib/lovpn-server --socket /run/lovpn-server/broker.sock broker --owner-user lovpn-server --broker-dir /var/lib/lovpn-broker --apply-on-start
 Restart=on-failure
 RestartSec=2
 RuntimeDirectory=lovpn-server

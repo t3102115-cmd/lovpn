@@ -330,6 +330,9 @@ def scenario(lab):
     run("nft", "delete", "table", "inet", "lovpn_server")
     lab.server("firewall", "repair")
 
+    # Online enrollment (M2c): token + pinned TLS, then a real WireGuard handshake.
+    enrollment_gate(lab, upstream)
+
     # Teardown removes only LoVPN-owned resources.
     lab.server("teardown", "--yes")
     tables = run("nft", "list", "tables").stdout
@@ -339,6 +342,106 @@ def scenario(lab):
     require(probe(two, "198.51.100.2", attempts=1) == "timeout", "clients lose service after teardown, as documented")
     lab.server("teardown", "--yes")
     require(True, "teardown is idempotent")
+
+
+def enrollment_gate(lab, upstream):
+    """A third device enrolls through `lovpn-server enroll serve` + `lovpn enroll`.
+
+    The listener runs in a nested user namespace as uid 1000 (it refuses to run as
+    root), reaches the broker for apply, and the client then proves the enrolled
+    identity with a real WireGuard handshake and traffic through the tunnel.
+    """
+    namespace = lab.new_namespace()
+    run("ip", "link", "add", "srv-gamma", "type", "veth", "peer", "name", "cli-gamma")
+    run("ip", "link", "set", "cli-gamma", "netns", str(namespace.process.pid))
+    run("ip", "addr", "add", "192.0.2.9/30", "dev", "srv-gamma")
+    run("ip", "link", "set", "srv-gamma", "up")
+    namespace.run("ip", "link", "set", "lo", "up")
+    namespace.run("ip", "addr", "add", "192.0.2.10/30", "dev", "cli-gamma")
+    namespace.run("ip", "link", "set", "cli-gamma", "up")
+
+    require("pin" in json.loads(lab.server("enroll", "tls-init", "--json").stdout), "enrollment TLS identity created and its pin printed")
+    pin = json.loads(lab.server("enroll", "pin", "--json").stdout)["pin"]
+    created = json.loads(lab.server("enroll", "token", "create", "--name", "gamma", "--json").stdout)
+    token, secret = created["token"], created["token"].split("-", 2)[2]
+    token_file = os.path.join(lab.root, "gamma.token")
+    with open(token_file, "w") as handle:
+        handle.write(token + "\n")
+    os.chmod(token_file, 0o600)
+
+    log_path = os.path.join(lab.root, "enroll-listener.log")
+    log = open(log_path, "w")
+    listener = subprocess.Popen(
+        ["unshare", "--user", "--map-user=1000", "--", lab.server_bin, "--state-dir", lab.state,
+         "--socket", lab.socket, "enroll", "serve", "--listen", "192.0.2.9:51821"],
+        stdout=log, stderr=log)
+    lab.helpers.append(listener)
+    for _ in range(100):
+        if "enroll-listening" in open(log_path).read():
+            break
+        time.sleep(0.05)
+    require("enroll-listening" in open(log_path).read(), "enrollment listener runs unprivileged (nested uid 1000) and listens")
+
+    key_file = os.path.join(lab.root, "gamma.key")
+    profile_file = os.path.join(lab.root, "gamma.toml")
+
+    def enroll(*extra, token_path=token_file, pin_value=pin, check=False):
+        return namespace.run(lab.client_bin, "--json", "enroll", "--server", "192.0.2.9:51821", "--pin", pin_value,
+                             "--name", "gamma", "--token-file", token_path, "--no-import", *extra, check=check)
+
+    wrong_pin = enroll("--key-file", key_file, "--generate-key", pin_value="sha256:" + "ab" * 32)
+    require(wrong_pin.returncode != 0 and "enroll.pin-mismatch" in wrong_pin.stderr, "client refuses a server whose certificate does not match the pin")
+    require(not any('"outcome":"redeemed"' in l or '"outcome":"denied"' in l for l in open(log_path)),
+            "the server never received a request from the wrong-pin attempt")
+
+    done = enroll("--key-file", key_file, "--generate-key", "--output", profile_file)
+    require(done.returncode == 0, f"client enrolls over pinned TLS ({done.stderr.strip()})")
+    result = json.loads(done.stdout)
+    require(result["pin_verified"] and result["applied_on_server"], "server confirmed the new peer was applied to the host")
+    profile = tomllib.loads(open(profile_file).read())
+    public = json.loads(run(lab.client_bin, "identity", "public", "--key-file", key_file, "--json").stdout)["public_key"]
+    require(public in wg_peers(), "the enrolled client's public key is live on the kernel WireGuard interface")
+    require(profile["profile"]["server_public_key"] == result["server_public_key"], "returned profile names the pinned server's key")
+
+    # Real data path with the enrolled identity.
+    endpoint = f"192.0.2.9:{profile['profile']['endpoint'].split(':')[1]}"
+    address = profile["tunnel"]["addresses"][0].split("/")[0]
+    namespace.run("ip", "link", "add", "lovpn0", "type", "wireguard")
+    namespace.run("ip", "addr", "add", f"{address}/32", "dev", "lovpn0")
+    namespace.run("ip", "link", "set", "lovpn0", "mtu", str(profile["tunnel"]["mtu"]), "up")
+    namespace.run("ip", "route", "add", "default", "dev", "lovpn0")
+    with open(key_file) as handle:
+        private = handle.read()
+    namespace.run("wg", "set", "lovpn0", "private-key", "/dev/stdin", "peer", result["server_public_key"],
+                  "endpoint", endpoint, "allowed-ips", "0.0.0.0/0", "persistent-keepalive", "1", input_text=private)
+    require(probe(namespace, "198.51.100.2") == "198.51.100.1", "enrolled client reaches the upstream through the tunnel")
+    require(handshakes().get(public, 0) > 0, "the enrolled client completed a real WireGuard handshake")
+
+    # Replay / lost-response behavior against the live listener.
+    again = enroll("--key-file", key_file, "--output", os.path.join(lab.root, "gamma-again.toml"))
+    require(again.returncode == 0 and open(os.path.join(lab.root, "gamma-again.toml")).read() == open(profile_file).read(),
+            "an identical retry (lost response) returns the same profile")
+    other = enroll("--key-file", os.path.join(lab.root, "gamma-other.key"), "--generate-key")
+    require(other.returncode != 0 and "enroll.denied" in other.stderr, "the same token with another key is refused")
+    peers = json.loads(lab.server("peer", "list", "--json").stdout)["peers"]
+    require([p["name"] for p in peers if p["status"] == "active" and p["name"] == "gamma"] == ["gamma"],
+            "exactly one active peer named gamma exists after the retry")
+    require(public in wg_peers() and lab.live()["in_sync"], "host in sync after online enrollment")
+
+    listener.terminate()
+    listener.wait()
+    log.close()
+    logs = open(log_path).read()
+    require(token not in logs and secret not in logs, "listener log never contains the token")
+    require("192.0.2.10" not in logs and public not in logs, "listener log never contains the client address or key")
+    require('"outcome":"redeemed"' in logs and '"outcome":"replayed"' in logs and '"outcome":"denied"' in logs,
+            "listener log records outcome classes")
+    state_text = open(os.path.join(lab.state, "state.json")).read()
+    require(token not in state_text and secret not in state_text, "state file never contains the token")
+    run("ip", "link", "del", "srv-gamma", check=False)
+    lab.server("peer", "revoke", "gamma", "--apply")
+    require(public not in wg_peers(), "revoking the enrolled peer removes it from the interface")
+    lab.server("firewall", "repair")
 
 
 if __name__ == "__main__":

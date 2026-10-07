@@ -110,7 +110,8 @@ pub fn call<Q: Serialize, R: DeserializeOwned>(
     stream
         .set_write_timeout(Some(IO_TIMEOUT))
         .map_err(|_| CallError::Io)?;
-    let mut line = serde_json::to_vec(request).map_err(|_| CallError::Io)?;
+    // The request may carry a private key (client profile import): zeroize our copy.
+    let mut line = zeroize::Zeroizing::new(serde_json::to_vec(request).map_err(|_| CallError::Io)?);
     line.push(b'\n');
     (&stream).write_all(&line).map_err(|_| CallError::Io)?;
     let reply = read_line(&stream, max_response).map_err(|_| CallError::Io)?;

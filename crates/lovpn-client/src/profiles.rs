@@ -10,12 +10,11 @@
 //! whose server key differs is refused, because that is exactly what a tampered
 //! profile looks like.
 use crate::ClientError;
-use lovpn_config::{ClientConfig, KillSwitchMode};
+use lovpn_config::ClientConfig;
 use lovpn_keys::{ClientPrivateKey, ServerPublicKey, file};
 use std::{
     fs::OpenOptions,
     io::{Read, Write},
-    net::SocketAddr,
     os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
 };
@@ -26,33 +25,7 @@ pub struct ProfileStore {
     dir: PathBuf,
 }
 
-#[derive(Clone, Debug, serde::Serialize)]
-pub struct ProfileInfo {
-    pub name: String,
-    pub endpoint: SocketAddr,
-    pub server_public_key: String,
-    pub kill_switch: &'static str,
-    pub interface: String,
-}
-
-pub fn valid_name(name: &str) -> bool {
-    let mut bytes = name.bytes();
-    bytes
-        .next()
-        .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-        && name.len() <= 32
-        && name
-            .bytes()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-' || c == b'_')
-}
-
-pub fn kill_switch_name(mode: KillSwitchMode) -> &'static str {
-    match mode {
-        KillSwitchMode::Off => "off",
-        KillSwitchMode::VpnOnly => "vpn-only",
-        KillSwitchMode::Strict => "strict",
-    }
-}
+pub use crate::model::{ProfileInfo, kill_switch_name, valid_name};
 
 fn io<T>(_: T) -> ClientError {
     ClientError::Storage
@@ -90,7 +63,9 @@ impl ProfileStore {
     fn read_profile(&self, name: &str) -> Result<ClientConfig, ClientError> {
         let mut file = OpenOptions::new()
             .read(true)
-            .custom_flags((rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC).bits() as i32)
+            .custom_flags(
+                (rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC).bits() as i32,
+            )
             .open(self.profile_path(name))
             .map_err(|error| {
                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -189,11 +164,14 @@ impl ProfileStore {
             return Err(ClientError::ProfileName);
         }
         let config = self.read_profile(name)?;
-        let key = file::read::<lovpn_keys::Client>(&self.key_path(name)).map_err(|error| match error {
-            file::KeyFileError::Permissions => ClientError::Permissions,
-            file::KeyFileError::Invalid(_) => ClientError::KeyInvalid,
-            _ => ClientError::Storage,
-        })?;
+        let key =
+            file::read::<lovpn_keys::Client>(&self.key_path(name)).map_err(
+                |error| match error {
+                    file::KeyFileError::Permissions => ClientError::Permissions,
+                    file::KeyFileError::Invalid(_) => ClientError::KeyInvalid,
+                    _ => ClientError::Storage,
+                },
+            )?;
         Ok((config, key))
     }
 

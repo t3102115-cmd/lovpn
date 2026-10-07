@@ -10,8 +10,13 @@ use tempfile::NamedTempFile;
 const SAMPLE: &str = include_str!("../../../examples/client.toml");
 const SAMPLE_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/client.toml");
 
+/// Tests never reach a real service: the socket is pinned to a path that cannot exist.
+const NO_SERVICE: &str = "/nonexistent/lovpn-test/broker.sock";
+
 fn cli(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_lovpn"))
+        .arg("--socket")
+        .arg(NO_SERVICE)
         .args(args)
         .output()
         .unwrap()
@@ -147,9 +152,31 @@ fn unsupported_protection_is_an_error_not_success() {
     assert_eq!(data["error"]["code"], "firewall.disabled");
 }
 
+#[cfg(unix)]
 #[test]
-fn missing_connect_backend_is_not_a_fake_command() {
-    assert_eq!(cli(&["connect"]).status.code(), Some(2));
+fn client_commands_fail_clearly_without_the_service_and_change_nothing() {
+    for args in [
+        vec!["connect"],
+        vec!["disconnect"],
+        vec!["reconnect"],
+        vec!["repair"],
+        vec!["reset"],
+        vec!["profile", "list"],
+        vec!["profile", "remove", "home"],
+    ] {
+        let mut args = args;
+        args.push("--json");
+        let output = cli(&args);
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        let data: Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(data["error"]["code"], "service.unreachable", "{args:?}");
+    }
+    // Status degrades honestly instead of failing or inventing a state.
+    let output = cli(&["status", "--json"]);
+    assert!(output.status.success());
+    let data: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(data["service"], "not-running");
+    assert_eq!(data["host_state_inspected"], false);
 }
 
 #[cfg(unix)]
@@ -225,4 +252,84 @@ fn identity_generate_keeps_private_key_in_a_new_private_file() {
     assert_eq!(std::fs::read_to_string(&key_file).unwrap().trim(), secret);
     let stderr = String::from_utf8_lossy(&again.stderr).to_string();
     assert!(!stderr.contains(secret) && !stderr.contains(path));
+}
+
+#[cfg(unix)]
+#[test]
+fn enroll_refuses_bad_input_before_any_network_use_and_never_echoes_the_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let pin = format!("sha256:{}", "0".repeat(64));
+    let key = dir.path().join("client.key");
+    let key = key.to_str().unwrap();
+    let write = |name: &str, text: &str| {
+        let path = dir.path().join(name);
+        std::fs::write(&path, text).unwrap();
+        path.to_str().unwrap().to_string()
+    };
+    let junk = write("junk.token", "lovpn1-this-is-not-a-real-token\n");
+    // 192.0.2.1 is reserved documentation space: nothing here may even try to connect.
+    let base = |extra: &[&str]| {
+        let mut args = vec![
+            "--json",
+            "enroll",
+            "--server",
+            "192.0.2.1:51821",
+            "--name",
+            "home",
+        ];
+        args.extend_from_slice(extra);
+        cli(&args)
+    };
+    let code = |output: &Output| -> String {
+        let data: Value = serde_json::from_slice(&output.stderr).unwrap();
+        data["error"]["code"].as_str().unwrap().to_string()
+    };
+
+    let bad_pin = base(&[
+        "--pin",
+        "sha256:zz",
+        "--token-file",
+        &junk,
+        "--key-file",
+        key,
+        "--generate-key",
+    ]);
+    assert_eq!(code(&bad_pin), "enroll.pin-format");
+    let bad_token = base(&[
+        "--pin",
+        &pin,
+        "--token-file",
+        &junk,
+        "--key-file",
+        key,
+        "--generate-key",
+    ]);
+    assert_eq!(code(&bad_token), "enroll.token-format");
+    let shown = String::from_utf8_lossy(&bad_token.stderr);
+    assert!(
+        !shown.contains("this-is-not-a-real-token"),
+        "the token must not be echoed"
+    );
+    assert!(
+        !std::path::Path::new(key).exists(),
+        "no key is created before the token is valid"
+    );
+
+    // The token is never accepted on the command line.
+    let argv = base(&["--pin", &pin, "--token", "lovpn1-x", "--key-file", key]);
+    assert_eq!(argv.status.code(), Some(2), "unknown flag --token");
+
+    // A missing key file needs an explicit --generate-key (checked with a valid token).
+    let valid = lovpn_enroll::token::Token::generate().unwrap().expose();
+    let token_file = write("ok.token", &valid);
+    let missing = base(&[
+        "--pin",
+        &pin,
+        "--token-file",
+        &token_file,
+        "--key-file",
+        key,
+    ]);
+    assert_eq!(code(&missing), "enroll.key-missing");
+    assert!(!std::path::Path::new(key).exists());
 }

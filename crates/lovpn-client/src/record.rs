@@ -5,23 +5,23 @@
 //! written before the matching change is made ("intent first") so a crash in the middle
 //! of connecting can still be cleaned up or resumed.
 use crate::ClientError;
+use rustix::fs::OFlags;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::OpenOptions,
-    io::Write,
+    io::{Read, Write},
     os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
 };
 
 const RECORD_FILE: &str = "session.json";
+const MAX_RECORD_BYTES: u64 = 8192;
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Desired {
-    Connected,
-    #[default]
-    Disconnected,
+fn nofollow() -> i32 {
+    (OFlags::NOFOLLOW | OFlags::CLOEXEC).bits() as i32
 }
+
+pub use crate::model::Desired;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, default)]
@@ -33,6 +33,12 @@ pub struct SessionRecord {
     pub profile: Option<String>,
     pub desired: Desired,
     pub kill_switch_armed: bool,
+    /// Kill-switch mode of the profile last connected: `off`, `vpn-only` or `strict`.
+    pub mode: Option<String>,
+    /// Generation stamped into the installed firewall table, and the profile it was
+    /// compiled for; a different profile forces an atomic reinstall.
+    pub firewall_generation: u64,
+    pub firewall_profile: Option<String>,
     /// Interface this broker created and may modify or delete.
     pub interface_owned: Option<String>,
     /// Routing rules/routes installed by this broker.
@@ -62,22 +68,40 @@ impl RecordStore {
     }
 
     pub fn load(&self) -> Result<SessionRecord, ClientError> {
-        match std::fs::read(self.dir.join(RECORD_FILE)) {
-            Ok(bytes) if bytes.len() < 8192 => {
-                let record: SessionRecord =
-                    serde_json::from_slice(&bytes).map_err(|_| ClientError::Record)?;
-                if record.schema_version != 1 {
-                    return Err(ClientError::Record);
-                }
-                Ok(record)
+        let path = self.dir.join(RECORD_FILE);
+        let file = match OpenOptions::new()
+            .read(true)
+            .custom_flags(nofollow() | OFlags::NONBLOCK.bits() as i32)
+            .open(&path)
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(SessionRecord {
+                    schema_version: 1,
+                    ..SessionRecord::default()
+                });
             }
-            Ok(_) => Err(ClientError::Record),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(SessionRecord {
-                schema_version: 1,
-                ..SessionRecord::default()
-            }),
-            Err(_) => Err(ClientError::Record),
+            Err(_) => return Err(ClientError::Record),
+        };
+        let metadata = file.metadata().map_err(|_| ClientError::Record)?;
+        if !metadata.is_file()
+            || metadata.nlink() != 1
+            || metadata.uid() != rustix::process::geteuid().as_raw()
+            || metadata.mode() & 0o177 != 0
+            || metadata.len() >= MAX_RECORD_BYTES
+        {
+            return Err(ClientError::Record);
         }
+        let mut bytes = Vec::with_capacity(MAX_RECORD_BYTES as usize);
+        file.take(MAX_RECORD_BYTES)
+            .read_to_end(&mut bytes)
+            .map_err(|_| ClientError::Record)?;
+        let record: SessionRecord =
+            serde_json::from_slice(&bytes).map_err(|_| ClientError::Record)?;
+        if record.schema_version != 1 {
+            return Err(ClientError::Record);
+        }
+        Ok(record)
     }
 
     pub fn save(&self, record: &SessionRecord) -> Result<(), ClientError> {
@@ -87,6 +111,7 @@ impl RecordStore {
             .write(true)
             .create_new(true)
             .mode(0o600)
+            .custom_flags(nofollow())
             .open(&temp)
             .map_err(|_| ClientError::Record)?;
         let json = serde_json::to_vec_pretty(record).map_err(|_| ClientError::Record)?;

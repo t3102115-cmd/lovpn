@@ -5,6 +5,88 @@ use proptest::prelude::*;
 
 const SAMPLE: &str = include_str!("../../../examples/client.toml");
 
+fn scoped(namespace: &str, servers: &str) -> String {
+    SAMPLE.replace(
+        "[dns]",
+        &format!("[dns]\nscopes = [{{ namespace = \"{namespace}\", servers = {servers} }}]"),
+    )
+}
+
+#[test]
+fn scoped_dns_is_additive_and_unknown_scope_fields_fail() {
+    let config = parse(&scoped(".corp.example", "[\"10.66.0.53\"]")).unwrap();
+    assert_eq!(config.dns.servers[0].to_string(), "10.66.0.1");
+    assert_eq!(config.dns.scopes[0].servers[0].to_string(), "10.66.0.53");
+    assert!(parse(SAMPLE).unwrap().dns.scopes.is_empty());
+    assert!(parse(&SAMPLE.replace("[dns]", "[dns]\nscopes = []")).is_ok());
+    let unknown = scoped(".corp.example", "[\"10.66.0.53\"]")
+        .replace("namespace =", "insecure = true, namespace =");
+    assert_eq!(parse(&unknown).err(), Some(ConfigError::Syntax));
+    assert!(
+        parse(
+            &scoped(".corp.example", "[\"10.66.0.53\"]")
+                .replace("servers = [\"10.66.0.1\"]", "servers = []")
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn scoped_dns_rejects_unsafe_names_resolvers_and_overlaps() {
+    for namespace in [
+        ".",
+        "corp.example",
+        ".Corp.example",
+        ".*.example",
+        ".corp.example.",
+        ".a..example",
+        ".-a.example",
+        ".a.example;cmd",
+        ".é.example",
+        ".internal",
+    ] {
+        assert!(
+            parse(&scoped(namespace, "[\"10.66.0.53\"]")).is_err(),
+            "{namespace}"
+        );
+    }
+    for servers in [
+        "[]",
+        "[\"::1\"]",
+        "[\"0.1.2.3\"]",
+        "[\"127.0.0.1\"]",
+        "[\"169.254.1.1\"]",
+        "[\"224.0.0.1\"]",
+        "[\"10.66.0.53\", \"10.66.0.53\"]",
+    ] {
+        assert!(
+            parse(&scoped(".corp.example", servers)).is_err(),
+            "{servers}"
+        );
+    }
+    let mut config = parse(&scoped(".corp.example", "[\"10.66.0.53\"]")).unwrap();
+    let mut child = config.dns.scopes[0].clone();
+    child.namespace = ".child.corp.example".into();
+    config.dns.scopes.push(child);
+    assert_eq!(config.validate(), Err(ConfigError::Dns));
+    config.dns.scopes[1].namespace = ".other.example".into();
+    assert!(config.validate().is_ok());
+    config.dns.scopes = vec![config.dns.scopes[0].clone(); 33];
+    assert_eq!(config.validate(), Err(ConfigError::Dns));
+}
+
+#[test]
+fn scoped_resolvers_require_tunnel_coverage_and_cannot_be_transport_endpoint() {
+    let split = scoped(".corp.example", "[\"10.67.0.53\"]")
+        .replace("routing = \"full\"", "routing = \"split\"")
+        .replace("0.0.0.0/0", "10.66.0.0/24");
+    assert_eq!(parse(&split).err(), Some(ConfigError::DnsRoute));
+    assert_eq!(
+        parse(&scoped(".corp.example", "[\"192.0.2.1\"]")).err(),
+        Some(ConfigError::DnsRoute)
+    );
+}
+
 #[test]
 fn accepts_public_full_tunnel_profile_without_modifying_addresses() {
     let config = parse(SAMPLE).unwrap();

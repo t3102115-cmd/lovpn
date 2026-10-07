@@ -51,7 +51,7 @@ privileged=1
 
 if ((uninstall)); then
   say "Uninstall plan:"
-  say "  - stop and disable lovpn-server-broker (if systemd manages it)"
+  say "  - stop and disable lovpn-server-enroll and lovpn-server-broker (if systemd manages them)"
   say "  - remove $bin_dir/lovpn-server, the unit, sysusers and tmpfiles files"
   ((purge)) && say "  - remove broker record $broker_dir (resets anti-rollback protection)"
   say "  - KEEP $state_dir (server key and peers) and the lovpn-server user"
@@ -59,9 +59,9 @@ if ((uninstall)); then
   say "      lovpn-server teardown --yes"
   if ((yes)); then
     if ((privileged)) && command -v systemctl >/dev/null; then
-      systemctl disable --now lovpn-server-broker.service 2>/dev/null || true
+      systemctl disable --now lovpn-server-enroll.service lovpn-server-broker.service 2>/dev/null || true
     fi
-    rm -f "$bin_dir/lovpn-server" "$unit_dir/lovpn-server-broker.service" \
+    rm -f "$bin_dir/lovpn-server" "$unit_dir/lovpn-server-broker.service" "$unit_dir/lovpn-server-enroll.service" \
       "$sysusers_dir/lovpn-server.conf" "$tmpfiles_dir/lovpn-server.conf"
     ((purge)) && rm -rf "$broker_dir"
     ((privileged)) && command -v systemctl >/dev/null && systemctl daemon-reload || true
@@ -81,7 +81,9 @@ fi
 say "Install plan:"
 say "  - install $binary -> $bin_dir/lovpn-server (0755)"
 [[ -x "$cli_binary" ]] && say "  - install $cli_binary -> $bin_dir/lovpn (0755)"
-say "  - install systemd unit -> $unit_dir/lovpn-server-broker.service (0644)"
+say "  - install systemd units -> $unit_dir/lovpn-server-broker.service and"
+say "    $unit_dir/lovpn-server-enroll.service (0644; the enrollment listener stays disabled"
+say "    and has no listen address until you configure one)"
 say "  - create user 'lovpn-server' via sysusers, state dir $state_dir (0700, that user),"
 say "    broker dir $broker_dir (0700, root)"
 say "  - NOT started automatically. No firewall, route or forwarding change is made now;"
@@ -91,6 +93,7 @@ do_it install -d -m 0755 "$bin_dir" "$unit_dir" "$sysusers_dir" "$tmpfiles_dir"
 do_it install -m 0755 "$binary" "$bin_dir/lovpn-server"
 [[ -x "$cli_binary" ]] && do_it install -m 0755 "$cli_binary" "$bin_dir/lovpn"
 do_it install -m 0644 "$root/packaging/linux/lovpn-server-broker.service" "$unit_dir/lovpn-server-broker.service"
+do_it install -m 0644 "$root/packaging/linux/lovpn-server-enroll.service" "$unit_dir/lovpn-server-enroll.service"
 do_it install -m 0644 "$root/packaging/linux/lovpn-server.sysusers" "$sysusers_dir/lovpn-server.conf"
 do_it install -m 0644 "$root/packaging/linux/lovpn-server.tmpfiles" "$tmpfiles_dir/lovpn-server.conf"
 

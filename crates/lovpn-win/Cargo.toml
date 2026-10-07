@@ -1,0 +1,52 @@
+[package]
+name = "lovpn-win"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "LoVPN Windows platform layer: the only crate allowed to use unsafe, for Win32 FFI."
+
+[dependencies]
+lovpn-client = { path = "../lovpn-client", version = "=0.1.0-dev.1" }
+lovpn-config = { path = "../lovpn-config", version = "=0.1.0-dev.1" }
+lovpn-keys = { path = "../lovpn-keys", version = "=0.1.0-dev.1" }
+zeroize.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+sha2 = "=0.11.0"
+windows-service = "=0.8.0"
+windows-sys = { version = "=0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_NetworkManagement_WindowsFilteringPlatform",
+    "Win32_Networking_WinSock",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Pipes",
+    "Win32_System_Rpc",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
+
+[[bin]]
+name = "lovpn-service"
+path = "src/main.rs"
+
+# Win32 FFI needs unsafe. It is confined to this crate; every block needs a SAFETY note.
+[lints.rust]
+unsafe_code = "allow"
+unused_must_use = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"

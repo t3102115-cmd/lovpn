@@ -11,10 +11,14 @@ pub fn privacy() -> Report {
             "third_party_analytics": false,
             "account_required": false,
             "network_connections": [],
+            "user_initiated_connections": [
+                {"command": "lovpn enroll", "destination": "the server address you give it", "protocol": "TLS 1.3 to a pinned certificate", "sends": "one-time token and your PUBLIC key"},
+                {"command": "lovpn connect", "destination": "the server in your profile, through lovpn-clientd", "protocol": "WireGuard", "sends": "tunnel traffic"}
+            ],
             "scope": "This offline CLI only; not other applications or build tools",
             "vpn_protection": "not-verified"
         }),
-        text: "LoVPN Privacy\n\nAccount required: No\nTelemetry: None\nCrash reporting: None\nThird-party analytics: None\nNetwork connections: None (this offline CLI)\n\nNo VPN backend is implemented. DNS, IPv4, IPv6 and kill-switch protection are NOT verified.\nBuild tools and other applications are outside this report's scope.".into(),
+        text: "LoVPN Privacy\n\nAccount required: No\nTelemetry: None\nCrash reporting: None\nThird-party analytics: None\nAutomatic or background connections: None (this CLI)\nConnections only when you ask for them:\n  lovpn enroll  -> the server address you give it (TLS 1.3, pinned certificate; sends a one-time token and your PUBLIC key)\n  lovpn connect -> the server in your profile, through the LoVPN service (WireGuard)\nOther commands only talk to the local LoVPN service. No LoVPN-operated server is ever contacted.\n\nProtection is only reported by `lovpn status` from what the service observes.\nBuild tools and other applications are outside this report's scope.".into(),
     }
 }
 
@@ -48,7 +52,7 @@ pub fn firewall(plan: &FirewallPlan, preview: Option<bool>) -> Report {
         "installed": false,
         "protection": "not-verified",
         "system_changed": false,
-        "warning": "No DHCP/NDP/LAN exceptions or lifecycle management. Do not apply this lab policy on your host or a remote machine."
+        "warning": "Allows IPv4 DHCP client traffic (UDP source port 68 to destination port 67) for uplink lease renewal. No NDP/LAN exceptions or lifecycle management. Do not apply this lab policy on your host or a remote machine."
     });
     let text = match preview {
         Some(reset) => {

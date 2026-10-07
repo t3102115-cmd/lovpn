@@ -22,6 +22,10 @@ const STATE_FILE: &str = "state.json";
 const TEMP_FILE: &str = "state.json.tmp";
 const LOCK_FILE: &str = "state.lock";
 const KEY_FILE: &str = "server.key";
+const TLS_FILE: &str = "enroll-tls.json";
+const TLS_TEMP: &str = "enroll-tls.json.tmp";
+const LIMITS_FILE: &str = "enroll-limits.json";
+const LIMITS_TEMP: &str = "enroll-limits.json.tmp";
 
 pub struct Store {
     dir: PathBuf,
@@ -38,18 +42,28 @@ fn storage<T>(_: T) -> ServerError {
 }
 
 impl Store {
-    /// Create a new state directory (parent must exist) with mode 0700.
+    /// Create a new state directory (parent must exist) with mode 0700, or adopt one that
+    /// the installer (systemd-tmpfiles) already created: it must be a real directory,
+    /// owned by the current user, mode 0700 and **empty**. Anything else is `Exists`, so
+    /// setup can never run over existing state or into a directory it does not own.
     pub fn create_dir(dir: &Path) -> Result<(), ServerError> {
-        std::fs::DirBuilder::new()
-            .mode(0o700)
-            .create(dir)
-            .map_err(|error| {
-                if error.kind() == std::io::ErrorKind::AlreadyExists {
-                    ServerError::Exists
+        match std::fs::DirBuilder::new().mode(0o700).create(dir) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let meta = std::fs::symlink_metadata(dir).map_err(storage)?;
+                let mine = meta.is_dir()
+                    && !meta.file_type().is_symlink()
+                    && meta.uid() == rustix::process::geteuid().as_raw()
+                    && meta.mode() & 0o777 == 0o700;
+                let empty = std::fs::read_dir(dir).map_err(storage)?.next().is_none();
+                if mine && empty {
+                    Ok(())
                 } else {
-                    ServerError::Storage
+                    Err(ServerError::Exists)
                 }
-            })
+            }
+            Err(_) => Err(ServerError::Storage),
+        }
     }
 
     /// Open an existing state directory owned by the current user.
@@ -232,5 +246,119 @@ impl Store {
         state.validate()?;
         self.write_state(&state)?;
         Ok((state.generation, value))
+    }
+
+    fn write_private_new(&self, name: &str, bytes: &[u8]) -> Result<(), ServerError> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(nofollow())
+            .open(self.path(name))
+            .map_err(storage)?;
+        file.write_all(bytes)
+            .and_then(|()| file.sync_all())
+            .map_err(storage)
+    }
+
+    fn tls_document(
+        certificate: &[u8],
+        private_key: &[u8],
+    ) -> Result<zeroize::Zeroizing<Vec<u8>>, ServerError> {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        let document = serde_json::json!({
+            "version": 1,
+            "certificate_der": STANDARD.encode(certificate),
+            "private_key_pkcs8": STANDARD.encode(private_key),
+        });
+        serde_json::to_vec(&document)
+            .map(zeroize::Zeroizing::new)
+            .map_err(|_| ServerError::State)
+    }
+
+    /// Persist the enrollment TLS identity (certificate and PKCS#8 key in ONE 0600 file,
+    /// so a crash can never leave a mismatched pair). Never overwrites an existing
+    /// identity: the pin would silently change. Use [`Store::rotate_tls_identity`].
+    pub fn init_tls_identity(
+        &self,
+        certificate: &[u8],
+        private_key: &[u8],
+    ) -> Result<(), ServerError> {
+        let _lock = self.lock()?;
+        if self.path(TLS_FILE).exists() {
+            return Err(ServerError::Exists);
+        }
+        let document = Self::tls_document(certificate, private_key)?;
+        let _ = std::fs::remove_file(self.path(TLS_TEMP));
+        self.write_private_new(TLS_TEMP, &document)?;
+        std::fs::rename(self.path(TLS_TEMP), self.path(TLS_FILE)).map_err(storage)?;
+        self.sync_dir()
+    }
+
+    /// Replace the enrollment TLS identity atomically (one rename). The old identity is
+    /// not kept: the pin changes at once, so rotate between enrollment windows and give
+    /// clients the new pin. Pending tokens are unaffected. The identity must exist.
+    pub fn rotate_tls_identity(
+        &self,
+        certificate: &[u8],
+        private_key: &[u8],
+    ) -> Result<(), ServerError> {
+        let _lock = self.lock()?;
+        if !self.path(TLS_FILE).exists() {
+            return Err(ServerError::NotFound);
+        }
+        // Refuse to rotate away from something unreadable or unsafe without noticing.
+        self.read_file(TLS_FILE)?;
+        let document = Self::tls_document(certificate, private_key)?;
+        let _ = std::fs::remove_file(self.path(TLS_TEMP));
+        self.write_private_new(TLS_TEMP, &document)?;
+        std::fs::rename(self.path(TLS_TEMP), self.path(TLS_FILE)).map_err(storage)?;
+        self.sync_dir()
+    }
+
+    /// Load the enrollment TLS identity; permissions are checked like the state file.
+    pub fn tls_identity(&self) -> Result<(Vec<u8>, zeroize::Zeroizing<Vec<u8>>), ServerError> {
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Document {
+            version: u32,
+            certificate_der: String,
+            private_key_pkcs8: String,
+        }
+        let bytes = zeroize::Zeroizing::new(self.read_file(TLS_FILE)?);
+        let document: Document = serde_json::from_slice(&bytes).map_err(|_| ServerError::State)?;
+        if document.version != 1 {
+            return Err(ServerError::Version);
+        }
+        let certificate = STANDARD
+            .decode(&document.certificate_der)
+            .map_err(|_| ServerError::State)?;
+        let key = zeroize::Zeroizing::new(
+            STANDARD
+                .decode(&document.private_key_pkcs8)
+                .map_err(|_| ServerError::State)?,
+        );
+        Ok((certificate, key))
+    }
+
+    /// Identity of the identity file on disk (inode, size, mtime ns): changes when the
+    /// identity is rotated, so a running listener can reload it without a restart.
+    pub fn tls_identity_stamp(&self) -> Option<(u64, u64, i64)> {
+        let m = std::fs::symlink_metadata(self.path(TLS_FILE)).ok()?;
+        Some((m.ino(), m.len(), m.mtime() * 1_000_000_000 + m.mtime_nsec()))
+    }
+
+    /// Previously persisted failure budgets, if any. Corrupt or unsafe files are
+    /// treated as absent (the limiter then starts empty and rewrites it).
+    pub fn load_limits(&self) -> Option<Vec<u8>> {
+        self.read_file(LIMITS_FILE).ok()
+    }
+
+    /// Atomically replace the failure-budget file. Single writer: the listener.
+    pub fn save_limits(&self, bytes: &[u8]) -> Result<(), ServerError> {
+        let _ = std::fs::remove_file(self.path(LIMITS_TEMP));
+        self.write_private_new(LIMITS_TEMP, bytes)?;
+        std::fs::rename(self.path(LIMITS_TEMP), self.path(LIMITS_FILE)).map_err(storage)
     }
 }

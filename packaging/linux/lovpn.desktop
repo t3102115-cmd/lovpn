@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=LoVPN
+GenericName=VPN client
+Comment=Connect to your own VPN server and see what is actually protected
+Exec=lovpn-ui
+Icon=network-vpn
+Terminal=false
+Categories=Network;Security;
+Keywords=vpn;privacy;wireguard;

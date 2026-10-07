@@ -249,6 +249,20 @@ impl<R: Role> PrivateKey<R> {
         })
     }
 
+    /// From raw bytes (for example read back from protected storage). Same strictness
+    /// as [`Self::from_base64`]: unclamped values are rejected.
+    pub fn from_bytes(raw: [u8; KEY_LEN]) -> Result<Self, KeyError> {
+        let mut bytes = Box::new(raw);
+        if !is_clamped(&bytes) {
+            bytes.zeroize();
+            return Err(KeyError::Unclamped);
+        }
+        Ok(Self {
+            bytes,
+            role: PhantomData,
+        })
+    }
+
     pub fn public_key(&self) -> PublicKey<R> {
         let secret = StaticSecret::from(*self.bytes);
         let public = x25519_dalek::PublicKey::from(&secret).to_bytes();
@@ -256,6 +270,11 @@ impl<R: Role> PrivateKey<R> {
             bytes: public,
             role: PhantomData,
         }
+    }
+
+    /// Raw key bytes for handing to a WireGuard driver API. Zeroized on drop.
+    pub fn expose_bytes(&self) -> Zeroizing<[u8; KEY_LEN]> {
+        Zeroizing::new(*self.bytes)
     }
 
     /// Explicitly expose the secret as base64 for protected storage or handoff to

@@ -27,7 +27,7 @@ M1 implementation evidence is recorded in [development.md](development.md). The
 offline foundation satisfies the parser/compiler/CLI portions; the privileged
 service, live VPN lifecycle and platform DNS integration remain later gates.
 
-## M2 — identities, server and enrollment (M2a, M2b done; M2c open)
+## M2 — identities, server and enrollment (M2a, M2b, M2c done)
 
 Split into slices. **M2a (done, see [server.md](server.md))**: `KEY-01` key types and
 protected key files (Unix); `SRV-01` state/peers/pool/atomic generations/export and a
@@ -38,9 +38,12 @@ install/uninstall script, anti-rollback record, apply-time revocation enforcemen
 the two-peer traffic / revoked-peer-loses-access gate test with real WireGuard. Still
 open from the M2 scope: running the unit as a real service on a host, server key
 rotation, health metrics, LAN-gateway/non-NAT/split modes, IPv6 tunneling.
-**M2c (not started)**:
-online enrollment per [enrollment.md](enrollment.md). Windows key storage (DPAPI/ACL)
-remains open. The bullets below are the full milestone scope.
+**M2c (done, see [enrollment.md](enrollment.md))**: online enrollment: pinned TLS 1.3,
+hashed one-time tokens, atomic single-use redemption with idempotent lost-response retry,
+clock-regression refusal, persistent pre-TLS rate limits, unprivileged listener and unit,
+`lovpn enroll`, and a namespace gate with a real WireGuard handshake. Still open: running
+the enrollment unit under real systemd, TLS identity rotation, QR/URI encodings, Windows
+execution of `lovpn enroll --identity`. Windows key storage (DPAPI/ACL) remains open. The bullets below are the full milestone scope.
 
 - `KEY-01`: mature WireGuard key generation, Linux protected files/credential
   loading, Windows DPAPI/ACL integration, zeroizing secret types and key rotation.
@@ -52,22 +55,50 @@ remains open. The bullets below are the full milestone scope.
 - Gate: two isolated peers exchange traffic; revoked peer loses access; enrollment
   replay/expiry/race tests; secret persistence and privilege review complete.
 
-## M3 — usable Linux client and server
+## M3 — usable Linux client and server (implementation slice)
 
-- `LIN-01`: generic netlink WireGuard, rtnetlink routes/rules, endpoint fwmark,
-  systemd service and caller-authenticated IPC. No arbitrary command execution.
-- `LIN-02`: persistent full-tunnel/strict kill switch, DHCP/NDP bootstrapping,
-  NetworkManager coordination, network-change and suspend/resume handling.
-- `DNS-01`: systemd-resolved/NetworkManager adapters with transactional restoration,
-  exclusive tunnel DNS and IPv6 blocking/tunneling. Unsupported resolver fails closed.
+- `LIN-01` **implemented for the Linux slice**: the root `lovpn-clientd` uses fixed
+  `ip`/`wg`/`nft`/`resolvectl` operations, policy routes/rules, endpoint fwmark,
+  caller-authenticated IPC and a hardened unit. It refuses foreign resources and
+  arbitrary command execution. Verified as a real systemd service (installed by the real
+  installer, capability set checked, SIGKILL recovery) on a Fedora 44 VM with enforcing
+  SELinux; other distributions are untested.
+- `LIN-02` **partially implemented**: persistent full IPv4/strict or VPN-only policy,
+  interface-loss/restart recovery and a resume-detection nudge exist. DHCP is only
+  an IPv4 firewall allowance. In the Fedora VM gate a real reboot, a real ACPI S3
+  suspend/resume, a NetworkManager restart with DHCP re-acquisition, a server outage and a
+  daemon SIGKILL all kept the machine Protected or Blocked with no IPv4 frame leaving the
+  physical NIC (captured outside the guest). NDP/RA, NetworkManager *managing* the tunnel
+  link, several uplinks and real hardware remain open.
+- `DNS-01` **partially implemented**: systemd-resolved per-link `~.` settings,
+  observation, revert and an explicit unmanaged/degraded mode exist. Real systemd-resolved
+  (Fedora 44) holds the `~.` link settings, answers only from the tunnel resolver and kept
+  them across a resolved restart. Multi-adapter, transactional host restoration, a lost
+  setting being repaired on a real host and IPv6 DNS are not evidenced; IPv6 tunnel mode is
+  unsupported.
 - `RT-01`: server forwarding, NAT/non-NAT and LAN routing without host-wide flushes;
   per-peer anti-spoofing and forward rules; no uncontrolled client-to-client access.
-- `REC-01`: inspect/repair/reset/uninstall only owned resources; explicit consent
-  before removing protection; stale journal and interrupted-upgrade recovery.
+- `REC-01` **partially implemented**: Linux client status/repair/reset and the
+  staging-tested uninstall operate on verified owned resources, with explicit
+  kill-switch release and restart recovery; real installers, uninstall (state and keys kept)
+  and `teardown` were run on the VMs, and a rebooted server restores itself from persisted
+  state (`--apply-on-start`). Stale journals and interrupted upgrades remain open. Route cleanup refuses to flush a
+  policy table containing an unrecognized route.
 - Gate: leak suite during crash, reconnect, interface switch, DNS fallback, route
-  conflict, reboot and recovery. Test Debian/Ubuntu and Fedora separately.
+  conflict, reboot and recovery. Test Debian/Ubuntu and Fedora separately. **Fedora 44 is
+  done** in `tests/linux-vm` (real systemd, SELinux enforcing, resolved, NetworkManager,
+  reboot, suspend, crash, outage; 102 checks). The gate stays open for Debian/Ubuntu, real
+  NIC hardware (Wi-Fi/Ethernet switching, several uplinks), rogue DHCP/RA, IPv6 and route
+  conflicts with other VPNs.
 
-## M4 — Windows client (v1 blocker)
+## M4 — Windows client (v1 blocker) — first slice implemented
+
+Done and verified in one Windows 11 VM ([windows.md](windows.md)): `WIN-01` (pinned,
+signature-checked WireGuardNT, service, ACL'd named pipe with token checks, DPAPI keys) and
+the persistent-WFP, DNS-guard and IPv6-block parts of `WIN-02`; PowerShell installer for
+`WIN-03`. **Still open:** boot-time (pre-BFE) filters, NRPT/split DNS, power and network
+change notifications proven on hardware, multi-interface and link-local enforcement,
+upgrade/rollback, an MSI, and testing on more Windows builds. Original scope:
 
 - `WIN-01`: documented WireGuardNT integration, signed driver distribution review,
   Windows service, authenticated named-pipe IPC and protected key storage.
@@ -77,7 +108,13 @@ remains open. The bullets below are the full milestone scope.
 - Gate: run tests in the Windows VM on explicitly recorded Windows builds. A Rust
   cross-target check is not a Windows runtime, WFP or driver test.
 
-## M5 — usability
+## M5 — usability — first slice implemented
+
+Done ([ui.md](ui.md)): a window with Home (the protection ring), Servers, Devices, Privacy,
+Diagnostics, Settings, Logs and Advanced, an onboarding wizard, sanitized diagnostics and
+light/dark themes, on both platforms. **Still open:** tray and notifications, server health
+probes (opt-in), favorites/tags, localization, high contrast and a screen-reader audit,
+automated browser tests. Original scope:
 
 - `UX-01`: accessible onboarding, connect/disconnect, profiles/favorites/tags,
   server health and opt-in probes, tray, notifications, privacy, diagnostics.

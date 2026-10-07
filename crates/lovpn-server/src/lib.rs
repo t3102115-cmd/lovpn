@@ -7,7 +7,11 @@
 pub mod applier;
 #[cfg(unix)]
 pub mod broker;
+pub mod enroll;
+#[cfg(unix)]
+pub mod enroll_server;
 mod error;
+pub mod limits;
 pub mod state;
 #[cfg(unix)]
 pub mod store;

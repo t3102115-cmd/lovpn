@@ -49,8 +49,8 @@ the device, and recover or uninstall without disturbing unrelated networking.
 | `lovpn-config` | Bounded, versioned public configuration and semantic validation | No networking, secrets or system writes |
 | `lovpn-firewall` | Deterministic, constrained nft policy compiler | No process execution or rule installation |
 | `lovpn-cli` | Offline validation, policy inspection, privacy/capability output | Unprivileged |
-| Future core/client | Lifecycle and reconnect orchestration, profiles | Calls a narrow broker API |
-| Future Linux/Windows broker | Reconcile owned OS resources, verify state | Minimum platform privileges |
+| Linux client (`lovpn-clientd` + `lovpn`) | Lifecycle/reconnect orchestration and profiles | Calls a narrow authenticated broker API; M3 full IPv4 slice |
+| Future Windows broker | Reconcile owned OS resources, verify state | Minimum platform privileges |
 | Future server | Peer inventory, address leases, enrollment and health | Separate management and networking authority |
 | Future key store | OS-backed private key creation/access | Accessible only to relevant broker/identity owner |
 | Future update verifier | Offline signature/metadata checks | No automatic installer execution |
@@ -74,8 +74,11 @@ injected OS observations, but never expose mock observations in production statu
 The CLI never changes host networking itself: it asks the broker. The policy compilers
 (`lovpn-firewall`, `state::render_profile`) stay pure and are tested without privileges;
 the applier is tested with a fake host (unprivileged) and with the real kernel in
-namespaces. The client-side broker (TUN, routes, kill switch, resolver) is designed in
-[enrollment.md](enrollment.md) and not yet built.
+namespaces. The Linux client-side broker (WireGuard link, routes, kill switch, resolver
+adapter) is implemented in M3; real-host/systemd/resolved evidence remains open. The
+Windows service (`lovpn-win`) implements the same lifecycle with WireGuardNT, IP Helper and
+persistent WFP filters ([windows.md](windows.md)); the pure policy compiler is shared in
+spirit with the Linux one and tested on every platform.
 
 ## Lifecycle and persistence
 
@@ -95,7 +98,15 @@ reconcile while blocked. Never flush the host ruleset. Kernel firewall enforceme
 must outlive the GUI and daemon. Boot-time enforcement and Windows boot-time WFP
 filters require separate tests; persistent runtime filters alone are insufficient.
 
-## GUI decision (before implementation)
+## GUI decision
+
+**Decided and implemented: a loopback-only local web app (`lovpn-ui`)**, described in
+[ui.md](ui.md). The candidates below were weighed first. Tauri needs WebKitGTK/WebView2
+and a JavaScript toolchain; egui and iced need platform accessibility work and a large
+native dependency tree. A small server plus a plain page needs no new native dependency,
+gets platform accessibility, and one UI serves both systems; its extra attack surface (a
+local HTTP listener) is handled explicitly in ui.md. Original comparison, kept for the
+record:
 
 | Candidate | Strengths | Costs / security considerations |
 | --- | --- | --- |
@@ -103,8 +114,7 @@ filters require separate tests; persistent runtime filters alone are insufficien
 | egui/eframe | All-Rust, fast iteration, minimal web attack surface | Consumer forms, screen-reader/platform accessibility and tray need validation |
 | iced | Rust-native declarative UI and clear message flow | Platform integration and accessibility need a prototype on supported OS versions |
 
-**Provisional preference: Tauri 2**, not yet an installed dependency or final
-commitment. Select only after keyboard/screen-reader/high-contrast, offline asset,
+**Superseded: Tauri 2 was the provisional preference and was not adopted.** Select only after keyboard/screen-reader/high-contrast, offline asset,
 Linux webview packaging, Windows WebView2 offline installation, and privilege
 boundary prototypes pass. Fedora inspection found no GTK3/WebKitGTK development
 packages. Do not install a frontend now. Bundle fonts/icons locally, deny remote
