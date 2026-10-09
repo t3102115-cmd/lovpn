@@ -68,7 +68,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - run: rustup toolchain install 1.97.1 --profile minimal
+      - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
       - name: Browser test tooling (test-only, never shipped)
         run: |
           python3 -m venv .venv
