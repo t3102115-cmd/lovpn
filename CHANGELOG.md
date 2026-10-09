@@ -17,7 +17,7 @@ production release yet.
   (CycloneDX), CI job `reproducible`; `scripts/measure-performance.sh` and
   [docs/performance.md](docs/performance.md) (measured on one machine over veth; no real-network claims).
 - Not done: update verification (no updater exists), key custody, independent review,
-  coverage-guided fuzzing. See [docs/release.md](docs/release.md).
+  long fuzz campaigns. See [docs/release.md](docs/release.md).
 
 ## Unreleased: window localization, accessibility, notifications and Linux tray (M5)
 

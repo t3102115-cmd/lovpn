@@ -1,0 +1,49 @@
+[package]
+name = "lovpn-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde_json = "1"
+lovpn-config = { path = "../crates/lovpn-config" }
+lovpn-enroll = { path = "../crates/lovpn-enroll" }
+lovpn-client = { path = "../crates/lovpn-client" }
+lovpn-sys = { path = "../crates/lovpn-sys" }
+lovpn-keys = { path = "../crates/lovpn-keys" }
+
+[workspace]
+
+[[bin]]
+name = "config_text"
+path = "fuzz_targets/config_text.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "enroll_wire"
+path = "fuzz_targets/enroll_wire.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "broker_request"
+path = "fuzz_targets/broker_request.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "ip_json"
+path = "fuzz_targets/ip_json.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "key_text"
+path = "fuzz_targets/key_text.rs"
+test = false
+doc = false

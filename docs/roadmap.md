@@ -135,7 +135,7 @@ privilege-review gate, reproducible builds on Linux and Windows, SBOM, signing/v
 scripts, provenance attestation workflow, performance measurements (see [release.md](release.md),
 [performance.md](performance.md), [privilege-review.md](privilege-review.md)). **Open, needs people
 or hardware:** REL-01 updater ([update-design.md](update-design.md), no implementation, needs
-independent review), key custody, human privilege review, coverage-guided fuzzing (nightly),
+independent review), key custody, human privilege review (fuzzing now runs, see release.md),
 performance on Windows/many peers/battery/real network. Original scope:
 
 - `REL-01`: independently reviewed update verification using TUF-style metadata,

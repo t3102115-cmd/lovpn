@@ -66,17 +66,9 @@ auto-update ships. Until then, updates are manual downloads checked with the scr
 
 ## Fuzzing status
 
-Coverage-guided fuzzing (`cargo-fuzz`, nightly) is not set up. Instead, proptest covers the
-config parser, enrollment protocol and tokens, the local HTTP parser, firewall rule
-compilation, `ip -j` output parsers and key decoding (`crates/*/tests`).
-
-## Evidence added in the completion pass
-
-- Leak matrix (`tests/networking/client_e2e.py::leak_matrix`): underlay veths are captured while
-  the client sends DNS (UDP/TCP 53), DoT, QUIC, mDNS, NetBIOS and ICMP to underlay and public
-  destinations; only WireGuard to the endpoint may appear (control: WireGuard packets are seen).
-- Windows reproducibility: `scripts/repro-check.ps1` (CI job `windows-reproducible`); two clean
-  builds of lovpn-service, lovpn, lovpn-ui and lovpn-tray were byte-identical on the Windows VM.
-- Provenance: `.github/workflows/release.yml` attests tagged builds. Not yet run (needs a tag on GitHub).
-- Request decoding: serde does not enforce `deny_unknown_fields` on data-less operations (`ping`,
-  `status`, `reset`, ...). They take no input, so an extra field changes nothing.
+Coverage-guided fuzzing is set up: `scripts/fuzz.sh [seconds]` (libFuzzer through `cargo-fuzz`,
+nightly) runs five targets in `fuzz/`: WireGuard/profile config text, the enrollment wire format
+and tokens, the broker/pipe request decoder, `ip -j` output parsers and key text. A 60 s run of
+each (about 12 million executions in total) found no crash. CI job `fuzz` repeats it. This is a
+short smoke run, not a long campaign; a long run before each release is recommended. Proptest
+(`crates/*/tests`) still covers the same parsers plus firewall compilation.
