@@ -197,7 +197,8 @@ impl Enroller {
         };
         let now = (self.ctx.clock)();
         if outcome.is_failure() {
-            self.limits.failure(&source, now);
+            self.limits
+                .failure(&source, now, outcome == Outcome::Denied);
             self.persist_limits();
         } else if matches!(outcome, Outcome::Redeemed | Outcome::Replayed) {
             self.limits.success(&source, now);

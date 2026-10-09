@@ -315,7 +315,7 @@ F-08 and F-09 and of the install flow, because those paths were only read here.
 | F-02 | Open by design: the owner account can lift the kill switch. Documented in `docs/threat-model.md`; a stronger model (separate admin approval) is a product decision. |
 | F-03 | Mitigated: the server tunnel interface must start with `lovpn` (regression test). `wan_interface` is still taken from the owner-writable state; documented as network-admin-equivalent. |
 | F-04 | Open, documented: unicast DHCP renewal needs the server address, which the firewall does not know. The rule is limited to root-bound UDP 68 to 67. |
-| F-05 | Open (denial of service by one source; low). |
+| F-05 | Fixed: only refused-token attempts count against the global budget; handshake failures and malformed requests are limited per source only (regression test). |
 | F-06 | Open: the update design lists the missing TUF protections; `verify-release.sh` is for manual installs only and must not be used as an updater. |
 | F-07 | Fixed: attestation moved to its own job; the build job has `contents: read` only. |
 | F-08 | Fixed: empty DPAPI output no longer builds a slice from a possibly null pointer. |
