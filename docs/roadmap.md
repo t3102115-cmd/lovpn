@@ -114,11 +114,10 @@ upgrade/rollback, an MSI, and testing on more Windows builds. Original scope:
 
 Done ([ui.md](ui.md)): a window with Home (the protection ring), Servers, Devices, Privacy,
 Diagnostics, Settings, Logs and Advanced, an onboarding wizard, sanitized diagnostics and
-light/dark themes, on both platforms. Added since: English/German localization, an axe
+light/dark themes, on both platforms. Added since: English/German/French/Spanish localization, an axe
 accessibility audit (0 violations), forced-colors support, 93 automated browser checks,
 opt-in window notifications and a tray (`lovpn-tray`, Linux and Windows). **Still open:** an
-NVDA/VoiceOver audit (Orca was run partly), server health probes (opt-in), favorites/tags, more
-languages and a native-speaker review. Original scope:
+NVDA/VoiceOver audit (Orca was run partly), server health probes (opt-in), favorites/tags, native-speaker review of the translations. Original scope:
 
 - `UX-01`: accessible onboarding, connect/disconnect, profiles/favorites/tags,
   server health and opt-in probes, tray, notifications, privacy, diagnostics.

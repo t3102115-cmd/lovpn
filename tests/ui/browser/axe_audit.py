@@ -1,4 +1,5 @@
 import json, os, sys
+import os
 from playwright.sync_api import sync_playwright
 from harness import Window, require
 ui, axe = sys.argv[1], sys.argv[2]
@@ -7,7 +8,7 @@ win = Window(ui, "protected")
 found = {}
 try:
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = getattr(p, os.environ.get('LOVPN_BROWSER', 'chromium')).launch()
         for scheme in ("light", "dark"):
             for width in (1100, 360):
                 ctx = browser.new_context(viewport={"width": width, "height": 800}, color_scheme=scheme, bypass_csp=True)

@@ -33,7 +33,7 @@ production release yet.
   sources), run on the Windows 11 VM desktop with the real service (`tests/windows/tray-e2e.ps1`).
 - Orca run (`tests/ui/screenreader/`) found two accessibility bugs, fixed: `role="status"` is
   never spoken by Orca (now a plain `aria-live` region) and refresh dropped focus from the heading.
-- Not done: NVDA/VoiceOver, other browsers in CI, more languages, MSI build.
+- Not done: NVDA/VoiceOver, WebKit, native-speaker review, MSI build.
 
 ## Unreleased: online enrollment (M2c)
 

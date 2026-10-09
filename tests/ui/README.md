@@ -21,4 +21,5 @@ scripts/test-ui.sh        # uses .venv and .axe if present
   dark, 1100 and 360 px wide, six scenarios and all eight views. Any violation fails.
 
 Limits: axe finds roughly a third of accessibility problems and no screen reader is run.
-Chromium only; Firefox and WebKit are not exercised.
+Chromium by default; `LOVPN_BROWSER=firefox scripts/test-ui.sh` runs Firefox (also passes with
+`playwright install firefox`). WebKit needs system libraries (`playwright install --with-deps`).

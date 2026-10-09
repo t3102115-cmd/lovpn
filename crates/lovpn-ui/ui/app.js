@@ -4,7 +4,7 @@
    All wording lives in /i18n/<language>.json; this file holds no user-visible prose. */
 
 const SECTIONS = ['home', 'servers', 'devices', 'privacy', 'diagnostics', 'settings', 'logs', 'advanced'];
-const LOCALES = [['en', 'English'], ['de', 'Deutsch']]; // endonyms: never translated
+const LOCALES = [['en', 'English'], ['de', 'Deutsch'], ['fr', 'Français'], ['es', 'Español']]; // endonyms: never translated
 const NS = 'http://www.w3.org/2000/svg';
 
 const app = { status: null, profiles: null, selected: null, error: null, busy: false, view: 'home', ready: false, sig: '', prevKey: null, pendingKey: null };

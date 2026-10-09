@@ -75,9 +75,10 @@ jobs:
         run: |
           python3 -m venv .venv
           .venv/bin/pip install playwright==1.63.0
-          .venv/bin/playwright install --with-deps chromium-headless-shell
+          .venv/bin/playwright install --with-deps chromium-headless-shell firefox
           npm install --prefix .axe axe-core@4.14.0
       - run: scripts/test-ui.sh
+      - run: LOVPN_BROWSER=firefox scripts/test-ui.sh
 
   reproducible:
     runs-on: ubuntu-24.04

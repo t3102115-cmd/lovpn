@@ -65,11 +65,11 @@ A browser can reach any loopback port, so the server defends itself:
 
 ## Language, accessibility and notifications
 
-* **Languages:** English and German, as JSON catalogs served from `/i18n/<lang>.json`
+* **Languages:** English, German, French and Spanish, as JSON catalogs served from `/i18n/<lang>.json`
   (`ui/i18n/`). The browser language picks one, Settings can override it, and anything
   missing falls back to English; a missing key shows the key, never a blank. Messages written
   by the service and the technical codes stay English on purpose, so a report and a bug
-  match. A unit test fails when the two catalogs differ in keys or `{placeholders}`, or when
+  match. A unit test fails when any catalog differs from English in keys or `{placeholders}`, or when
   `app.js` asks for a key that does not exist.
 * **Accessibility:** one skip link, landmarks, one `h1` per view that receives focus on
   navigation, native `<dialog>` modals named by their heading with focus returned to the
@@ -132,7 +132,7 @@ A browser can reach any loopback port, so the server defends itself:
 
 Not done, and what that means: **NVDA, JAWS and VoiceOver were not run** and Orca only
 partly (above); automated checks find only part of the real problems; Chromium is the only
-browser in the automated tests (Firefox only under Orca); the Linux tray was seen on one
-desktop (KDE), not GNOME, Xfce or Cinnamon; no further languages were added; German text
+browser in CI; Firefox passes the same browser and axe suites locally (`LOVPN_BROWSER=firefox`), WebKit needs system libraries and was not run; the Linux tray was seen on one
+desktop (KDE), not GNOME, Xfce or Cinnamon; German, French and Spanish text
 was written by the author, not by a native reviewer; right-to-left languages are untested;
 the notification wording and permission flow depend on the browser.

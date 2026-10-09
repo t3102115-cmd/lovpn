@@ -92,6 +92,8 @@ const STYLE: &str = include_str!("../ui/app.css");
 const ICON: &str = include_str!("../ui/icon.svg");
 const I18N_EN: &str = include_str!("../ui/i18n/en.json");
 const I18N_DE: &str = include_str!("../ui/i18n/de.json");
+const I18N_FR: &str = include_str!("../ui/i18n/fr.json");
+const I18N_ES: &str = include_str!("../ui/i18n/es.json");
 
 pub fn route(ctx: &Context, backend: &dyn Backend, request: &Request, now: u64) -> Response {
     if !host_ok(ctx, request.header("host")) {
@@ -128,6 +130,8 @@ pub fn route(ctx: &Context, backend: &dyn Backend, request: &Request, now: u64) 
             "/icon.svg" => Response::new(200, "image/svg+xml", ICON),
             "/i18n/en.json" => Response::new(200, "application/json; charset=utf-8", I18N_EN),
             "/i18n/de.json" => Response::new(200, "application/json; charset=utf-8", I18N_DE),
+            "/i18n/fr.json" => Response::new(200, "application/json; charset=utf-8", I18N_FR),
+            "/i18n/es.json" => Response::new(200, "application/json; charset=utf-8", I18N_ES),
             _ => Response::text(404, "Not found."),
         };
     }
@@ -507,21 +511,24 @@ mod tests {
 
     #[test]
     fn the_languages_have_the_same_keys_and_placeholders() {
-        let (en, de) = (catalog(I18N_EN), catalog(I18N_DE));
-        let missing: Vec<_> = en.keys().filter(|k| !de.contains_key(*k)).collect();
-        let extra: Vec<_> = de.keys().filter(|k| !en.contains_key(*k)).collect();
-        assert!(missing.is_empty(), "German lacks: {missing:?}");
-        assert!(extra.is_empty(), "German has unknown keys: {extra:?}");
-        for (key, english) in &en {
-            assert_eq!(
-                placeholders(english),
-                placeholders(&de[key]),
-                "placeholders differ in {key}"
-            );
-            assert!(
-                !english.trim().is_empty() && !de[key].trim().is_empty(),
-                "{key} is empty"
-            );
+        let en = catalog(I18N_EN);
+        for (code, text) in [("de", I18N_DE), ("fr", I18N_FR), ("es", I18N_ES)] {
+            let other = catalog(text);
+            let missing: Vec<_> = en.keys().filter(|k| !other.contains_key(*k)).collect();
+            let extra: Vec<_> = other.keys().filter(|k| !en.contains_key(*k)).collect();
+            assert!(missing.is_empty(), "{code} lacks: {missing:?}");
+            assert!(extra.is_empty(), "{code} has unknown keys: {extra:?}");
+            for (key, english) in &en {
+                assert_eq!(
+                    placeholders(english),
+                    placeholders(&other[key]),
+                    "placeholders differ in {code}/{key}"
+                );
+                assert!(
+                    !english.trim().is_empty() && !other[key].trim().is_empty(),
+                    "{code}/{key} is empty"
+                );
+            }
         }
     }
 
@@ -569,7 +576,9 @@ mod tests {
         for (path, status) in [
             ("/i18n/en.json", 200),
             ("/i18n/de.json", 200),
-            ("/i18n/fr.json", 404),
+            ("/i18n/fr.json", 200),
+            ("/i18n/es.json", 200),
+            ("/i18n/it.json", 404),
             ("/i18n/../app.js", 404),
         ] {
             let r = route(

@@ -4,6 +4,7 @@ tests/ui/README.md). Nothing here ships."""
 import sys
 import urllib.error
 import urllib.request
+import os
 from playwright.sync_api import sync_playwright
 from harness import Window, require
 
@@ -33,7 +34,7 @@ def goto(page, section):
 
 try:
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = getattr(p, os.environ.get('LOVPN_BROWSER', 'chromium')).launch()
 
         # --- every view renders in every scenario, with no console error or CSP violation
         ctx, page = open_page(browser)
@@ -97,9 +98,14 @@ try:
         page.evaluate("localStorage.setItem('lovpn-lang','xx')"); page.reload(); page.wait_for_selector("main h1")
         require(page.evaluate("document.documentElement.lang") in ("de", "en"), "an unknown stored language is ignored")
         ctx.close()
-        ctx, page = open_page(browser, locale="fr-FR")
+        ctx, page = open_page(browser, locale="it-IT")
         require(page.evaluate("document.documentElement.lang") == "en", "unsupported language falls back to English")
         ctx.close()
+        for code, word in (("fr-FR", "protégé"), ("es-ES", "protegido")):
+            ctx, page = open_page(browser, locale=code)
+            require(page.evaluate("document.documentElement.lang") == code[:2], f"browser language {code} selects its language")
+            require(word in page.inner_text("main h1").lower(), f"{code} headline is translated ({page.inner_text('main h1')!r})")
+            ctx.close()
 
         # --- keyboard: skip link, focus on navigation, dialog focus
         ctx, page = open_page(browser)
