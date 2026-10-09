@@ -11,9 +11,9 @@ use std::{
     ffi::c_void,
     fs::File,
     io::{Read, Write},
+    os::windows::io::{AsRawHandle, FromRawHandle},
     sync::mpsc,
     time::Duration,
-    os::windows::io::{AsRawHandle, FromRawHandle},
 };
 use windows_sys::Win32::{
     Foundation::{ERROR_PIPE_CONNECTED, HANDLE, INVALID_HANDLE_VALUE, LocalFree},

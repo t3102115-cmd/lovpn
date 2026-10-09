@@ -42,7 +42,11 @@ fn a_silent_client_is_dropped_and_the_next_client_is_served() {
     drop(silent);
 
     // The loop is free again: a normal client is served promptly.
-    let mut client = OpenOptions::new().read(true).write(true).open(&name).unwrap();
+    let mut client = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&name)
+        .unwrap();
     client.write_all(b"{\"op\":\"ping\"}\n").unwrap();
     let (line, waited) = rx.recv_timeout(Duration::from_secs(10)).unwrap();
     assert_eq!(line.unwrap(), b"{\"op\":\"ping\"}");
