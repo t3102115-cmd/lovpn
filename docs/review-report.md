@@ -311,7 +311,7 @@ F-08 and F-09 and of the install flow, because those paths were only read here.
 
 | Finding | Status |
 | --- | --- |
-| F-01 | Fixed in `host.rs`: absolute System32 PowerShell path (same as `dns.rs`). Built on Windows; not exercised elevated. |
+| F-01 | Fixed in `host.rs`: absolute System32 PowerShell path (same as `dns.rs`). Builds and passes clippy and tests on Windows; not exercised in an elevated install. |
 | F-02 | Open by design: the owner account can lift the kill switch. Documented in `docs/threat-model.md`; a stronger model (separate admin approval) is a product decision. |
 | F-03 | Mitigated: the server tunnel interface must start with `lovpn` (regression test). `wan_interface` is still taken from the owner-writable state; documented as network-admin-equivalent. |
 | F-04 | Open, documented: unicast DHCP renewal needs the server address, which the firewall does not know. The rule is limited to root-bound UDP 68 to 67. |
@@ -319,5 +319,5 @@ F-08 and F-09 and of the install flow, because those paths were only read here.
 | F-06 | Open: the update design lists the missing TUF protections; `verify-release.sh` is for manual installs only and must not be used as an updater. |
 | F-07 | Fixed: attestation moved to its own job; the build job has `contents: read` only. |
 | F-08 | Fixed: empty DPAPI output no longer builds a slice from a possibly null pointer. |
-| F-09 | Open: pipe reads have no timeout (self-inflicted denial of service). |
+| F-09 | Fixed: each request line must arrive within 5 s (watchdog cancels the blocked read with `CancelIoEx`). Test `pipe_deadline.rs` passes on Windows: a silent client is dropped after about 5 s and the next client is served. |
 | F-10 | Info. |

@@ -11,6 +11,8 @@ use std::{
     ffi::c_void,
     fs::File,
     io::{Read, Write},
+    sync::mpsc,
+    time::Duration,
     os::windows::io::{AsRawHandle, FromRawHandle},
 };
 use windows_sys::Win32::{
@@ -22,6 +24,7 @@ use windows_sys::Win32::{
     },
     Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX},
     System::{
+        IO::CancelIoEx,
         Pipes::{
             ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, ImpersonateNamedPipeClient,
             PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT,
@@ -29,6 +32,9 @@ use windows_sys::Win32::{
         Threading::{GetCurrentThread, OpenThreadToken},
     },
 };
+
+/// A client has this long to send one complete request line.
+const READ_DEADLINE: Duration = Duration::from_secs(5);
 
 pub const DEFAULT_PIPE: &str = r"\\.\pipe\lovpn-client";
 /// SYNCHRONIZE | READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_WRITE_DATA | FILE_READ_DATA:
@@ -130,18 +136,34 @@ impl Listener {
 }
 
 impl Connection {
-    /// One request line of at most `limit` bytes.
+    /// One request line of at most `limit` bytes, within `READ_DEADLINE`. The accept loop is
+    /// single-threaded, so a client that connects and stays silent must not hold it: a
+    /// watchdog cancels the blocked read when the deadline passes.
     pub fn read_line(&mut self, limit: usize) -> Option<Vec<u8>> {
+        let (done, expired) = mpsc::channel::<()>();
+        let handle = self.file.as_raw_handle() as usize;
+        let watchdog = std::thread::spawn(move || {
+            if expired.recv_timeout(READ_DEADLINE) == Err(mpsc::RecvTimeoutError::Timeout) {
+                // SAFETY: `read_line` joins this thread before returning, so the handle is
+                // still open; cancelling pending I/O on it has no other precondition.
+                unsafe { CancelIoEx(handle as HANDLE, std::ptr::null()) };
+            }
+        });
         let mut line = Vec::new();
         let mut byte = [0u8; 1];
-        while line.len() <= limit {
-            match self.file.read(&mut byte) {
-                Ok(1) if byte[0] == b'\n' => return Some(line),
-                Ok(1) => line.push(byte[0]),
-                _ => return None,
+        let result = loop {
+            if line.len() > limit {
+                break None;
             }
-        }
-        None
+            match self.file.read(&mut byte) {
+                Ok(1) if byte[0] == b'\n' => break Some(line),
+                Ok(1) => line.push(byte[0]),
+                _ => break None,
+            }
+        };
+        let _ = done.send(());
+        let _ = watchdog.join();
+        result
     }
 
     pub fn write_line(&mut self, bytes: &[u8]) {
