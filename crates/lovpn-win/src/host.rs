@@ -128,7 +128,10 @@ fn service_main(_arguments: Vec<OsString>) {
 
 /// The SID of the user running this (elevated) process: the controlling user.
 fn current_user_sid() -> Option<String> {
-    let output = std::process::Command::new("powershell")
+    // Absolute system path: never search the current directory or PATH from an elevated process.
+    let root = std::env::var_os("SystemRoot")?;
+    let exe = std::path::PathBuf::from(root).join("System32/WindowsPowerShell/v1.0/powershell.exe");
+    let output = std::process::Command::new(exe)
         .args([
             "-NoProfile",
             "-Command",

@@ -226,6 +226,14 @@ pub fn unseal(sealed: &[u8]) -> Result<zeroize::Zeroizing<Vec<u8>>, WinError> {
 }
 
 fn take(output: CRYPT_INTEGER_BLOB) -> Result<Vec<u8>, WinError> {
+    if output.cbData == 0 || output.pbData.is_null() {
+        // An empty result may carry a null pointer, which `from_raw_parts` forbids.
+        if !output.pbData.is_null() {
+            // SAFETY: allocated by the DPAPI call; freed once.
+            unsafe { LocalFree(output.pbData.cast()) };
+        }
+        return Ok(Vec::new());
+    }
     // SAFETY: the API returned `cbData` valid bytes at `pbData`.
     let data =
         unsafe { std::slice::from_raw_parts(output.pbData, output.cbData as usize) }.to_vec();

@@ -154,3 +154,10 @@ At each milestone inspect cryptography, key lifetime, privileges, route/DNS/IPv6
 escape paths, configuration trust, update rollback, network disclosures and whether
 the UI can overstate protection. Record evidence and unresolved risks in development
 notes. Until both platform leak suites pass, no production security claim is made.
+
+- **Controlling-account authority (review F-02/F-03):** the account that owns the client pipe/socket
+  can release the kill switch and import a profile with its own server key and endpoint; the
+  `lovpn-server` service user can make the root server broker apply its state (forwarding, NAT out
+  of any uplink name, firewall tables), though only for interfaces named `lovpn*`. Both are
+  network-administrator-equivalent by design; the out-of-band server key pin protects against a
+  remote attacker, not against these accounts.

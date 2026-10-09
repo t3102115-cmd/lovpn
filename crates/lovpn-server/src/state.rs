@@ -187,7 +187,11 @@ impl ServerState {
         if !valid_label(&s.label) {
             return Err(ServerError::Label);
         }
+        // The owned tunnel must be recognisably LoVPN's, so a state file written by the
+        // unprivileged service user cannot make the root broker create or reconfigure
+        // some other interface. (The WAN name is the uplink and is not created by us.)
         if !valid_interface(&s.interface)
+            || !s.interface.starts_with("lovpn")
             || !valid_interface(&s.wan_interface)
             || s.interface == s.wan_interface
         {

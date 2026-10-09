@@ -192,6 +192,10 @@ fn setup_rejects_unsafe_parameters() {
     let mut p = params();
     p.interface = "bad name".into();
     cases.push((p, ServerError::Interface));
+    // The root broker must only ever create or touch interfaces named like LoVPN's own.
+    let mut p = params();
+    p.interface = "eth1".into();
+    cases.push((p, ServerError::Interface));
     let mut p = params();
     p.dns = vec![];
     cases.push((p, ServerError::Dns));

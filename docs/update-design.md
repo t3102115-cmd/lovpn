@@ -17,3 +17,10 @@ Requirements, taken from the roadmap:
 
 Open decisions (human, not code): which TUF client library to use and who audits it; who holds
 the root keys; threshold values; hosting; how the first root is delivered out of band.
+
+## Known gaps in today's manual tooling (review F-06)
+
+`verify-release.sh` accepts any validly signed `SHA256SUMS`, including an old one, and does not
+bind a version, expiry, or the complete file list. It must not be used as an updater. A real updater
+needs TUF's timestamp/snapshot/targets separation to cover rollback, freeze, mix-and-match and
+unlisted-file attacks.
