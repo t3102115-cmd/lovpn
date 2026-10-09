@@ -236,6 +236,64 @@ def bound_probe(namespace, destination, interface, attempts=3):
     return "timeout"
 
 
+LEAK_SENDER = (
+    "import socket,sys\n"
+    "for fam,kind,port in [(socket.AF_INET,socket.SOCK_DGRAM,53),(socket.AF_INET,socket.SOCK_STREAM,53),"
+    "(socket.AF_INET,socket.SOCK_STREAM,853),(socket.AF_INET,socket.SOCK_DGRAM,443),"
+    "(socket.AF_INET,socket.SOCK_DGRAM,5353),(socket.AF_INET,socket.SOCK_DGRAM,137)]:\n"
+    " for dest in sys.argv[1:]:\n"
+    "  s=socket.socket(fam,kind);s.settimeout(.3)\n"
+    "  try:\n"
+    "   if kind==socket.SOCK_DGRAM: s.sendto(b'leak-probe',(dest,port))\n"
+    "   else: s.connect((dest,port))\n"
+    "  except OSError: pass\n"
+    "  s.close()\n"
+    "import subprocess\n"
+    "for dest in sys.argv[1:]: subprocess.run(['ping','-c','1','-W','1',dest],capture_output=True)\n"
+)
+SNIFFER = (
+    "import socket,struct,sys,time\n"
+    "socks=[]\n"
+    "for n in sys.argv[2:]:\n"
+    " s=socket.socket(socket.AF_PACKET,socket.SOCK_RAW,socket.htons(3));s.bind((n,0));s.settimeout(.2);socks.append(s)\n"
+    "end=time.time()+float(sys.argv[1]);bad=[];wg=0\n"
+    "while time.time()<end:\n"
+    " for s in socks:\n"
+    "  try: f,meta=s.recvfrom(2048)\n"
+    "  except OSError: continue\n"
+    "  if meta[2]==4: continue\n"
+    "  t=struct.unpack('!H',f[12:14])[0]\n"
+    "  if t==0x0806: continue\n"
+    "  if t==0x86dd:\n"
+    "   if f[20]==58 and f[54] in (133,134,135,136): continue\n"
+    "   bad.append('ipv6 '+f[54:55].hex()+' nh'+str(f[20]));continue\n"
+    "  if t!=0x0800: bad.append(hex(t));continue\n"
+    "  ihl=(f[14]&15)*4;proto=f[23];src=socket.inet_ntoa(f[26:30])\n"
+    "  if proto==17:\n"
+    "   sp,dp=struct.unpack('!HH',f[14+ihl:18+ihl])\n"
+    "   if 51820 in (sp,dp): wg+=1;continue\n"
+    "  bad.append('proto%d %s->%s'%(proto,src,socket.inet_ntoa(f[30:34])))\n"
+    "print(len(bad),'wg=%d'%wg,*bad[:5])\n"
+)
+
+
+def leak_matrix(lab):
+    """Capture both underlay veths while the client sends DNS/DoT/QUIC/mDNS/NetBIOS/ICMP
+    to underlay and public-looking destinations. Only WireGuard to the endpoint may appear."""
+    sniff = subprocess.Popen(
+        ["python3", "-c", SNIFFER, "6", "srv-client", "srv-client2"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    time.sleep(1)
+    lab.client_namespace.run(
+        "python3", "-c", LEAK_SENDER, "192.0.2.1", "192.0.2.5", "8.8.8.8", "1.1.1.1", "198.51.100.2",
+        check=False,
+    )
+    out, err = sniff.communicate(timeout=20)
+    require(sniff.returncode == 0 and out.startswith("0 wg=") and not out.startswith("0 wg=0"),
+            f"leak matrix: no non-WireGuard packet on the underlay (saw: {out.strip()} {err.strip()})")
+
+
 def preexisting_tcp_check(lab):
     ready = os.path.join(lab.root, "tcp-ready")
     go = os.path.join(lab.root, "tcp-go")
@@ -564,6 +622,7 @@ def scenario(lab):
         probe6(lab.client_namespace, "2001:db8:1::1") == "timeout",
         "IPv6 underlay traffic is blocked while IPv6 payload is disabled",
     )
+    leak_matrix(lab)
 
     route_to_client = lab.client_namespace.run(
         "ip", "route", "replace", "192.0.2.1/32",

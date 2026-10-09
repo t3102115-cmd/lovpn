@@ -5,7 +5,7 @@
   --ink: #16211d;
   --muted: #55655e;
   --line: #c4cfc9;
-  --pine: #1f7a5a;
+  --pine: #1b6f4f;
   --pine-ink: #ffffff;
   --amber: #9a5b0b;
   --red: #b3372f;
@@ -38,6 +38,7 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--ground); color: var(--ink); font: 16px/1.5 var(--font); font-variant-numeric: tabular-nums; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 .skip { position: absolute; left: -999px; top: 0; background: var(--ink); color: var(--ground); padding: 8px 12px; z-index: 10; }
 .skip:focus { left: 8px; top: 8px; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
@@ -52,6 +53,7 @@ html, body { margin: 0; background: var(--ground); color: var(--ink); font: 16px
 .rail-note { margin: auto 0 0; padding: 0 8px; color: var(--muted); font-size: 0.85rem; }
 
 main { padding: 40px clamp(20px, 5vw, 64px) 72px; max-width: 980px; outline: none; }
+h1:focus, h2:focus { outline: none; }
 h1 { font-size: clamp(1.9rem, 3.4vw, 2.6rem); line-height: 1.08; letter-spacing: -0.025em; font-weight: 680; margin: 0 0 8px; }
 h2 { font-size: 1.15rem; line-height: 1.25; letter-spacing: -0.01em; margin: 36px 0 10px; }
 p { margin: 0 0 12px; max-width: 64ch; }
@@ -126,6 +128,8 @@ textarea { min-height: 150px; font-family: var(--mono); font-size: 0.88rem; }
 .radios { display: flex; gap: 8px; flex-wrap: wrap; }
 .radios label { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; margin: 0; padding: 8px 14px; border: 1.5px solid var(--line); border-radius: 9px; cursor: pointer; }
 .radios input:checked + span { font-weight: 700; }
+label.check { display: flex; align-items: center; gap: 10px; font-weight: 500; margin: 8px 0 4px; }
+label.check input { width: 22px; height: 22px; }
 pre.log { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; overflow: auto; max-height: 56vh; font: 0.82rem/1.55 var(--mono); white-space: pre-wrap; word-break: break-word; }
 .todo { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
 .todo li { padding: 12px 0; border-bottom: 1px solid var(--line); }
@@ -153,9 +157,23 @@ dialog .actions { margin-top: 22px; justify-content: flex-end; }
   .actions { justify-content: center; }
 }
 @media (max-width: 760px) {
-  table.stack thead { display: none; }
+  table.stack thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   table.stack tr { display: block; padding: 10px 0; border-bottom: 1px solid var(--line); }
   table.stack td { display: block; border: 0; padding: 2px 0; }
   table.stack td:first-child { font-weight: 640; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Windows High Contrast / forced colours: use system colours and keep the shape cues
+   (dash patterns and widths) that already distinguish states without colour. */
+@media (forced-colors: active) {
+  .ring .arc[data-s="ok"], .glyph .arc[data-s="ok"] { stroke: Highlight; }
+  .ring .arc[data-s="fail"], .glyph .arc[data-s="fail"] { stroke: LinkText; }
+  .ring .arc[data-s="unknown"], .glyph .arc[data-s="unknown"] { stroke: GrayText; }
+  .ring .arc[data-s="none"], .glyph .arc[data-s="none"], .ring .arc[data-s="off"], .glyph .arc[data-s="off"] { stroke: GrayText; }
+  .ring .arc[data-s="blocking"], .glyph .arc[data-s="blocking"] { stroke: CanvasText; }
+  .ring text { fill: CanvasText; }
+  #nav a[aria-current="page"] { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+  button.primary, button.go { forced-color-adjust: none; background: ButtonText; color: ButtonFace; border-color: ButtonText; }
+  #toast { forced-color-adjust: none; background: CanvasText; color: Canvas; }
+}

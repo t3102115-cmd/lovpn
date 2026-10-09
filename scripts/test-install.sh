@@ -9,7 +9,7 @@ stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 fake="$stage/fake-bin"
 mkdir -p "$fake"
-for name in lovpn-server lovpn lovpn-clientd lovpn-ui; do
+for name in lovpn-server lovpn lovpn-clientd lovpn-ui lovpn-tray; do
   printf '#!/bin/sh\nexit 0\n' >"$fake/$name"
   chmod 755 "$fake/$name"
 done
@@ -61,7 +61,7 @@ fi
 
 client_root="$stage/client-root"
 client_run=(./scripts/install-client.sh --destdir "$client_root" \
-  --daemon-binary "$fake/lovpn-clientd" --client-binary "$fake/lovpn" --ui-binary "$fake/lovpn-ui" --owner-uid "$(id -u)")
+  --daemon-binary "$fake/lovpn-clientd" --client-binary "$fake/lovpn" --ui-binary "$fake/lovpn-ui" --tray-binary "$fake/lovpn-tray" --owner-uid "$(id -u)")
 
 "${client_run[@]}" >/dev/null
 [[ ! -e "$client_root" ]] || fail "client plan mode created files"
@@ -71,6 +71,7 @@ pass "client plan mode changes nothing"
 [[ -x "$client_root/usr/local/bin/lovpn-clientd" ]] || fail "client broker not installed"
 [[ -x "$client_root/usr/local/bin/lovpn" ]] || fail "client CLI not installed"
 [[ -x "$client_root/usr/local/bin/lovpn-ui" ]] || fail "client window not installed"
+[[ -x "$client_root/usr/local/bin/lovpn-tray" ]] || fail "tray not installed"
 [[ -f "$client_root/usr/local/share/applications/lovpn.desktop" ]] || fail "desktop entry not installed"
 [[ -f "$client_root/etc/systemd/system/lovpn-clientd.service" ]] || fail "client unit not installed"
 [[ "$(cat "$client_root/etc/default/lovpn-client")" == "LOVPN_OWNER_UID=$(id -u)" ]] || fail "client owner configuration"
@@ -81,6 +82,7 @@ mkdir -p "$client_root/var/lib/lovpn-client/profiles"
 printf 'keep-profile\n' >"$client_root/var/lib/lovpn-client/profiles/keep.toml"
 "${client_run[@]}" --uninstall --yes >/dev/null
 [[ ! -e "$client_root/usr/local/bin/lovpn-clientd" ]] || fail "client broker not removed"
+[[ ! -e "$client_root/usr/local/bin/lovpn-tray" ]] || fail "tray not removed"
 [[ ! -e "$client_root/etc/systemd/system/lovpn-clientd.service" ]] || fail "client unit not removed"
 [[ -f "$client_root/var/lib/lovpn-client/profiles/keep.toml" ]] || fail "client uninstall deleted a profile"
 pass "client uninstall removes program/unit and keeps profiles and state"

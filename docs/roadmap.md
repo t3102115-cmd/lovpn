@@ -91,12 +91,14 @@ execution of `lovpn enroll --identity`. Windows key storage (DPAPI/ACL) remains 
   NIC hardware (Wi-Fi/Ethernet switching, several uplinks), rogue DHCP/RA, IPv6 and route
   conflicts with other VPNs.
 
-## M4 — Windows client (v1 blocker) — first slice implemented
+## M4 — Windows client (v1 blocker) — implementation extended, gates open
 
 Done and verified in one Windows 11 VM ([windows.md](windows.md)): `WIN-01` (pinned,
 signature-checked WireGuardNT, service, ACL'd named pipe with token checks, DPAPI keys) and
 the persistent-WFP, DNS-guard and IPv6-block parts of `WIN-02`; PowerShell installer for
-`WIN-03`. **Still open:** boot-time (pre-BFE) filters, NRPT/split DNS, power and network
+`WIN-03`. Boot-time filters, additive NRPT split DNS and MSI sources now exist, and native
+NRPT/isolated WFP tests passed. The latest VM end-to-end run failed 14 checks with no
+WireGuard handshake; this is not a release pass. **Still open:** reboot/pre-BFE enforcement, power and network
 change notifications proven on hardware, multi-interface and link-local enforcement,
 upgrade/rollback, an MSI, and testing on more Windows builds. Original scope:
 
@@ -112,9 +114,11 @@ upgrade/rollback, an MSI, and testing on more Windows builds. Original scope:
 
 Done ([ui.md](ui.md)): a window with Home (the protection ring), Servers, Devices, Privacy,
 Diagnostics, Settings, Logs and Advanced, an onboarding wizard, sanitized diagnostics and
-light/dark themes, on both platforms. **Still open:** tray and notifications, server health
-probes (opt-in), favorites/tags, localization, high contrast and a screen-reader audit,
-automated browser tests. Original scope:
+light/dark themes, on both platforms. Added since: English/German localization, an axe
+accessibility audit (0 violations), forced-colors support, 93 automated browser checks,
+opt-in window notifications and a tray (`lovpn-tray`, Linux and Windows). **Still open:** an
+NVDA/VoiceOver audit (Orca was run partly), server health probes (opt-in), favorites/tags, more
+languages and a native-speaker review. Original scope:
 
 - `UX-01`: accessible onboarding, connect/disconnect, profiles/favorites/tags,
   server health and opt-in probes, tray, notifications, privacy, diagnostics.
@@ -124,7 +128,15 @@ automated browser tests. Original scope:
 - Later: app-based splitting, auto-selection, trusted networks (SSID is not an
   authentication factor), decentralized directories and Lo Security integration.
 
-## M6 — release hardening and packaging
+## M6 — release hardening and packaging — implemented as far as code and this lab allow
+
+Done: property tests (parsers, protocol, keys, state rules), packet-capture leak matrix,
+privilege-review gate, reproducible builds on Linux and Windows, SBOM, signing/verification
+scripts, provenance attestation workflow, performance measurements (see [release.md](release.md),
+[performance.md](performance.md), [privilege-review.md](privilege-review.md)). **Open, needs people
+or hardware:** REL-01 updater ([update-design.md](update-design.md), no implementation, needs
+independent review), key custody, human privilege review, coverage-guided fuzzing (nightly),
+performance on Windows/many peers/battery/real network. Original scope:
 
 - `REL-01`: independently reviewed update verification using TUF-style metadata,
   offline trust roots, threshold signing, expiry and anti-rollback state.

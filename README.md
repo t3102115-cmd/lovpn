@@ -48,7 +48,7 @@ virtual NICs, one uplink and no IPv6 underlay, hardware Wi-Fi, rogue DHCP/RA or
 Debian/Ubuntu run. M3 rejects IPv6 endpoints and tunnel mode, split routing,
 LAN bypass and NDP/RA; unmanaged DNS is explicitly degraded. The owner can explicitly
 release the kill switch. Online enrollment (pinned TLS, one-time tokens) exists for the Linux server and the CLI
-client ([`docs/enrollment.md`](docs/enrollment.md)). There is no tray icon or updater, and the
+client ([`docs/enrollment.md`](docs/enrollment.md)). There is a tray icon (Linux and Windows) but no updater, and the
 Windows client has only been run in one VM (see [`docs/windows.md`](docs/windows.md#limits-and-what-is-not-evidenced)). See
 [`docs/server.md`](docs/server.md) for the exact boundaries,
 [`docs/client.md`](docs/client.md),

@@ -39,7 +39,7 @@ Second session (Windows + window):
 - New crate `lovpn-win` (the only crate allowed `unsafe`; `undocumented_unsafe_blocks` is
   denied): `driver`, `ip`, `wfp`, `policy` (pure, tested everywhere), `store` (DPAPI, ACL),
   `pipe`, `profiles`, `record`, `engine`, `daemon`, `host`/`main` (service), tests.
-- New crate `lovpn-ui` with a strict hand-written loopback HTTP layer (9 unit tests found a
+- New crate `lovpn-ui` with a strict hand-written loopback HTTP layer (unit tests found a
   smuggling vector and a limit bypass, both fixed) and the page (`ui/`).
 - `lovpn-cli` is now a library plus a binary; client commands work on Windows; Windows has
   no key file: `identity generate --name`, `profile import` without `--key-file`.
@@ -64,7 +64,7 @@ Linux: `cargo fmt --check`, `clippy --locked --workspace --all-targets -D warnin
 
 Windows (native, VM): fmt, clippy `-D warnings`, `cargo test --workspace` (63 tests): passed.
 `tests/windows/vm-e2e.ps1` 34/34 and `tests/windows/vm-recovery.ps1` 13/13 on the final
-build. Window: 9 unit tests; manual review of all states in a browser, plus connect,
+build. Window: 12 unit tests, 93 browser checks, axe audit; manual review of all states in a browser, plus connect,
 logs and disconnect through the window on the real Windows service.
 
 `scripts/test-networking.sh` passed again on the final tree (150 checks, all suites: firewall,
@@ -78,8 +78,8 @@ server firewall, server end to end, client end to end).
   hardware NICs, coexistence with other VPN/firewall products and domain machines.
 - Windows: boot-time (pre-BFE) filters, NRPT/split DNS, power/network-change notification
   proof, multi-interface and link-local enforcement, MSI/upgrade/rollback, tray icon.
-- Window: automated browser tests, a screen-reader/keyboard/contrast audit, localization,
-  notifications, favorites/tags, opt-in server health probes.
+- Window: a screen-reader audit (keyboard/contrast/axe are done), more languages,
+  favorites/tags, opt-in server health probes.
 - Networking features not implemented anywhere: IPv6 through the tunnel, split tunnel, LAN
   access while connected. Do not add switches for them before there is enforcement and a
   leak test; the Advanced page lists them as not available.
@@ -140,8 +140,8 @@ server firewall, server end to end, client end to end).
    real sleep/resume test (VM snapshot + power actions; keep the SYSTEM watchdog).
 2. Repeat `tests/linux-vm` on Debian/Ubuntu (the lab is Fedora-specific only in package names
    and cloud-init) and on physical hardware.
-3. Windows tray icon (a tiny separate process polling `lovpn status`) and an MSI.
-4. Accessibility audit and automated browser tests for the window.
+3. Build and runtime-test the MSI (it now includes `lovpn-tray.exe`); prove the tray menu on Windows.
+4. Screen-reader audit of the window (axe and browser tests exist).
 5. Design and implement LAN access and split tunneling per platform with separate leak
    matrices; then IPv6 through the tunnel.
 6. Online enrollment is implemented and was run on real units and in the Windows VM.

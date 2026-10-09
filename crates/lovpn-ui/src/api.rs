@@ -90,6 +90,8 @@ const INDEX: &str = include_str!("../ui/index.html");
 const SCRIPT: &str = include_str!("../ui/app.js");
 const STYLE: &str = include_str!("../ui/app.css");
 const ICON: &str = include_str!("../ui/icon.svg");
+const I18N_EN: &str = include_str!("../ui/i18n/en.json");
+const I18N_DE: &str = include_str!("../ui/i18n/de.json");
 
 pub fn route(ctx: &Context, backend: &dyn Backend, request: &Request, now: u64) -> Response {
     if !host_ok(ctx, request.header("host")) {
@@ -124,6 +126,8 @@ pub fn route(ctx: &Context, backend: &dyn Backend, request: &Request, now: u64) 
             "/app.js" => Response::new(200, "text/javascript; charset=utf-8", SCRIPT),
             "/app.css" => Response::new(200, "text/css; charset=utf-8", STYLE),
             "/icon.svg" => Response::new(200, "image/svg+xml", ICON),
+            "/i18n/en.json" => Response::new(200, "application/json; charset=utf-8", I18N_EN),
+            "/i18n/de.json" => Response::new(200, "application/json; charset=utf-8", I18N_DE),
             _ => Response::text(404, "Not found."),
         };
     }
@@ -480,5 +484,111 @@ mod tests {
         assert!(out.contains("\"state\":\"protected\""));
         assert!(out.contains("present, owned, up"));
         assert!(out.contains("endpoint-route"));
+    }
+
+    fn catalog(text: &str) -> std::collections::BTreeMap<String, String> {
+        serde_json::from_str(text).expect("a flat JSON object of strings")
+    }
+
+    /// `{name}` placeholders of one string, sorted.
+    fn placeholders(text: &str) -> Vec<String> {
+        let mut found = Vec::new();
+        let mut rest = text;
+        while let Some(start) = rest.find('{') {
+            let Some(len) = rest[start..].find('}') else {
+                break;
+            };
+            found.push(rest[start + 1..start + len].to_string());
+            rest = &rest[start + len + 1..];
+        }
+        found.sort();
+        found
+    }
+
+    #[test]
+    fn the_languages_have_the_same_keys_and_placeholders() {
+        let (en, de) = (catalog(I18N_EN), catalog(I18N_DE));
+        let missing: Vec<_> = en.keys().filter(|k| !de.contains_key(*k)).collect();
+        let extra: Vec<_> = de.keys().filter(|k| !en.contains_key(*k)).collect();
+        assert!(missing.is_empty(), "German lacks: {missing:?}");
+        assert!(extra.is_empty(), "German has unknown keys: {extra:?}");
+        for (key, english) in &en {
+            assert_eq!(
+                placeholders(english),
+                placeholders(&de[key]),
+                "placeholders differ in {key}"
+            );
+            assert!(
+                !english.trim().is_empty() && !de[key].trim().is_empty(),
+                "{key} is empty"
+            );
+        }
+    }
+
+    #[test]
+    fn every_literal_key_the_script_asks_for_exists() {
+        let en = catalog(I18N_EN);
+        let mut asked = 0;
+        for (call, plural) in [("t('", false), ("tn('", true)] {
+            for (at, _) in SCRIPT.match_indices(call) {
+                // `lsGet('x')` also ends in `t('`: only a call named exactly `t` or `tn` counts.
+                let before = SCRIPT[..at].chars().next_back();
+                if before.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                    continue;
+                }
+                let part = &SCRIPT[at + call.len()..];
+                let Some(end) = part.find('\'') else { continue };
+                let (key, after) = (&part[..end], part[end + 1..].chars().next());
+                // `t('head.' + s + ...)` builds the key at run time; only whole literals count.
+                if !matches!(after, Some(')' | ',')) || key.is_empty() {
+                    continue;
+                }
+                asked += 1;
+                if plural {
+                    assert!(
+                        en.contains_key(&format!("{key}.one"))
+                            && en.contains_key(&format!("{key}.other")),
+                        "missing plural forms of {key}"
+                    );
+                } else {
+                    assert!(
+                        en.contains_key(key),
+                        "app.js asks for a missing string: {key}"
+                    );
+                }
+            }
+        }
+        assert!(
+            asked > 100,
+            "the scan found only {asked} keys; the pattern is stale"
+        );
+    }
+
+    #[test]
+    fn the_language_files_are_served_and_unknown_ones_are_not() {
+        for (path, status) in [
+            ("/i18n/en.json", 200),
+            ("/i18n/de.json", 200),
+            ("/i18n/fr.json", 404),
+            ("/i18n/../app.js", 404),
+        ] {
+            let r = route(
+                &ctx(),
+                &Stub,
+                &req("GET", path, "", &[HOST, COOKIE_OK], ""),
+                0,
+            );
+            assert_eq!(r.status, status, "{path}");
+        }
+        let r = route(
+            &ctx(),
+            &Stub,
+            &req("GET", "/i18n/de.json", "", &[HOST], ""),
+            0,
+        );
+        assert_eq!(
+            r.status, 403,
+            "the language files need the launch token like everything else"
+        );
     }
 }

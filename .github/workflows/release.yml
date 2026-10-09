@@ -1,0 +1,42 @@
+name: release
+# Builds release artifacts from a version tag and attaches a build-provenance attestation.
+# The offline maintainer signature (scripts/sign-release.sh) is added by hand: the signing
+# key is never stored in CI. See docs/release.md.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Reproducibility gate
+        run: ./scripts/repro-check.sh
+      - name: Build
+        run: cargo +1.97.1 build --locked --release -p lovpn-server -p lovpn-client -p lovpn-cli -p lovpn-ui -p lovpn-tray
+      - name: SBOM
+        run: ./scripts/sbom.py -o sbom-linux.json
+      - name: Collect
+        run: |
+          mkdir dist
+          for b in lovpn-server lovpn lovpn-clientd lovpn-ui lovpn-tray; do cp "target/release/$b" dist/; done
+          cp sbom-linux.json dist/
+          (cd dist && sha256sum -- * > SHA256SUMS)
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: dist/*
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lovpn-linux
+          path: dist/

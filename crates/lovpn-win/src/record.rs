@@ -284,4 +284,16 @@ mod tests {
         }
         assert!(decode(&vec![b' '; MAX_BYTES + 1]).is_err());
     }
+
+    mod fuzz {
+        use super::super::decode;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn arbitrary_record_bytes_never_panic(bytes in proptest::collection::vec(any::<u8>(), 0..4096)) {
+                let _ = decode(&bytes);
+            }
+        }
+    }
 }

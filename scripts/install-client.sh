@@ -16,6 +16,7 @@ root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 daemon_binary="${CARGO_TARGET_DIR:-$root/target}/release/lovpn-clientd"
 cli_binary="${CARGO_TARGET_DIR:-$root/target}/release/lovpn"
 ui_binary="${CARGO_TARGET_DIR:-$root/target}/release/lovpn-ui"
+tray_binary="${CARGO_TARGET_DIR:-$root/target}/release/lovpn-tray"
 owner_uid=""
 owner_user="${SUDO_USER:-${USER:-}}"
 yes=0
@@ -32,6 +33,7 @@ while (($#)); do
     --daemon-binary) daemon_binary="${2:?--daemon-binary needs a path}"; shift ;;
     --client-binary) cli_binary="${2:?--client-binary needs a path}"; shift ;;
     --ui-binary) ui_binary="${2:?--ui-binary needs a path}"; shift ;;
+    --tray-binary) tray_binary="${2:?--tray-binary needs a path}"; shift ;;
     -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
@@ -60,14 +62,14 @@ fi
 if ((uninstall)); then
   say "Uninstall plan:"
   say "  - stop and disable lovpn-clientd (if systemd manages it)"
-  say "  - remove $bin_dir/lovpn-clientd, $bin_dir/lovpn, $bin_dir/lovpn-ui, the desktop entry, the unit and $default_file"
+  say "  - remove $bin_dir/lovpn-clientd, $bin_dir/lovpn, $bin_dir/lovpn-ui, $bin_dir/lovpn-tray, the desktop entry, the unit and $default_file"
   say "  - KEEP $state_dir and every imported profile, private key and session record"
   say "  - NOT removed here: tunnel, routes, nftables or resolver state; use 'lovpn reset' first"
   if ((yes)); then
     if ((privileged)) && command -v systemctl >/dev/null; then
       systemctl disable --now lovpn-clientd.service 2>/dev/null || true
     fi
-    rm -f "$bin_dir/lovpn-clientd" "$bin_dir/lovpn" "$bin_dir/lovpn-ui" "$apps_dir/lovpn.desktop" \
+    rm -f "$bin_dir/lovpn-clientd" "$bin_dir/lovpn" "$bin_dir/lovpn-ui" "$bin_dir/lovpn-tray" "$apps_dir/lovpn.desktop" \
       "$unit_dir/lovpn-clientd.service" "$default_file"
     ((privileged)) && command -v systemctl >/dev/null && systemctl daemon-reload || true
     say "Uninstalled. Client profiles and state were left in place."
@@ -100,6 +102,7 @@ say "Install plan:"
 say "  - install $daemon_binary -> $bin_dir/lovpn-clientd (0755)"
 [[ -x "$cli_binary" ]] && say "  - install $cli_binary -> $bin_dir/lovpn (0755)"
 [[ -x "$ui_binary" ]] && say "  - install $ui_binary -> $bin_dir/lovpn-ui (0755) and a desktop entry in $apps_dir"
+[[ -x "$tray_binary" ]] && say "  - install $tray_binary -> $bin_dir/lovpn-tray (0755); it is not started automatically"
 say "  - install systemd unit -> $unit_dir/lovpn-clientd.service (0644)"
 say "  - configure owner UID $owner_uid in $default_file (0644)"
 say "  - create root-owned client state $state_dir (0700)"
@@ -113,6 +116,7 @@ if [[ -x "$ui_binary" ]]; then
   do_it install -d -m 0755 "$apps_dir"
   do_it install -m 0644 "$root/packaging/linux/lovpn.desktop" "$apps_dir/lovpn.desktop"
 fi
+[[ -x "$tray_binary" ]] && do_it install -m 0755 "$tray_binary" "$bin_dir/lovpn-tray"
 do_it install -m 0644 "$root/packaging/linux/lovpn-clientd.service" "$unit_dir/lovpn-clientd.service"
 do_it install -d -m 0700 "$state_dir"
 if ((yes)); then

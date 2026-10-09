@@ -11,6 +11,7 @@ members = [
     "crates/lovpn-win",
     "crates/lovpn-cli",
     "crates/lovpn-ui",
+    "crates/lovpn-tray",
 ]
 
 [workspace.package]

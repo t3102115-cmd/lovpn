@@ -1,0 +1,17 @@
+/target/
+**/target/
+/.local/
+/.env
+/.env.*
+*.key
+*.pem
+*.pfx
+*.p12
+*.dmp
+*.log
+/artifacts/
+__pycache__/
+*.py[cod]
+/.venv/
+/.axe/
+__pycache__/

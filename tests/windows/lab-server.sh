@@ -25,7 +25,9 @@ fi
 S="$BIN/lovpn-server --state-dir $LAB_DIR/state --socket $LAB_DIR/broker.sock"
 mkdir -p "$LAB_DIR/broker" && chmod 700 "$LAB_DIR/broker"
 WAN=$(ip route show default | awk '{print $5; exit}')
-$S setup --write-state --endpoint "$BIND:$PORT" --pool 10.66.0.0/24 --wan-interface "$WAN" --dns 10.66.0.1 >/dev/null
+if [[ ! -f "$LAB_DIR/state/state.json" ]]; then
+  $S setup --write-state --endpoint "$BIND:$PORT" --pool 10.66.0.0/24 --wan-interface "$WAN" --dns 10.66.0.1 >/dev/null
+fi
 $BIN/lovpn-server --state-dir "$LAB_DIR/state" --socket "$LAB_DIR/broker.sock" broker --owner-uid 0 --broker-dir "$LAB_DIR/broker" 2>"$LAB_DIR/broker.log" &
 for _ in $(seq 50); do [[ -S $LAB_DIR/broker.sock ]] && break; sleep 0.1; done
 $S apply >/dev/null

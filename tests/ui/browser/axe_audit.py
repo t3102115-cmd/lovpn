@@ -36,3 +36,4 @@ finally:
 for (rid, impact), info in sorted(found.items()):
     print(f"{impact:9} {rid}: {info['help']}  [{len(info['where'])} views]  e.g. {sorted(info['nodes'])[:3]}")
 print("TOTAL rule violations:", len(found))
+sys.exit(1 if found else 0)

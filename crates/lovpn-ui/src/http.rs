@@ -284,4 +284,29 @@ mod tests {
             assert!(text.contains(needle), "{needle}");
         }
     }
+
+    mod hostile {
+        use super::super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Whatever arrives on the loopback socket, the parser neither panics nor keeps
+            /// more than its limits allow.
+            #[test]
+            fn arbitrary_bytes_never_panic_and_never_exceed_the_limits(bytes in prop::collection::vec(any::<u8>(), 0..40_000)) {
+                if let Ok(request) = read_request(&mut std::io::Cursor::new(bytes)) {
+                    prop_assert!(request.body.len() <= MAX_BODY_BYTES);
+                    prop_assert!(request.path.starts_with('/'));
+                }
+            }
+
+            #[test]
+            fn mutated_valid_requests_never_panic(position in 0usize..80, byte in any::<u8>()) {
+                let mut raw = b"POST /api/use HTTP/1.1\r\nHost: 127.0.0.1:1\r\nContent-Length: 2\r\nContent-Type: application/json\r\n\r\n{}".to_vec();
+                let index = position % raw.len();
+                raw[index] = byte;
+                let _ = read_request(&mut std::io::Cursor::new(raw));
+            }
+        }
+    }
 }

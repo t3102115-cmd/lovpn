@@ -105,8 +105,8 @@ Test scaffolding to remove when finished: `/tmp/lovpn-lab`, the lab server proce
 1. Finish the reboot-persistence test (script it like `vm-recovery.ps1`: an at-startup SYSTEM
    task that records, for ~90 s after boot, whether outbound is blocked and the service state;
    then add the result to `docs/windows.md`). Then sleep/resume if the VM allows it.
-2. Windows tray icon (tiny separate process polling `lovpn status`, honest states) and an MSI.
-3. Accessibility audit and automated browser tests for `lovpn-ui`.
+2. Build and runtime-test the MSI (now includes `lovpn-tray.exe`); prove the Windows tray menu.
+3. Screen-reader audit of `lovpn-ui` (automated browser tests and axe exist).
 4. LAN access / split tunnel per platform with separate leak matrices; then IPv6 through the tunnel.
 5. Repeat the Linux VM gate (`tests/linux-vm`) on other distributions and hardware.
 

@@ -1,0 +1,103 @@
+name: foundation-checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace
+      - run: cargo build --locked --release --workspace
+      - if: runner.os == 'Linux'
+        run: python3 scripts/check-docs.py
+      - if: runner.os == 'Linux'
+        name: Disposable kernel WireGuard and nftables test
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes wireguard-tools nftables iproute2
+          cargo build --locked -p lovpn-cli -p lovpn-server -p lovpn-client
+          host_netns=$(readlink /proc/self/ns/net)
+          # Privilege is confined to disposable user/network namespaces; never host rules.
+          sudo timeout 90 unshare --user --map-root-user --net -- \
+            python3 tests/networking/firewall.py "$host_netns" "$PWD/target/debug/lovpn"
+          sudo timeout 90 unshare --user --map-root-user --net -- \
+            python3 tests/networking/server_firewall.py "$host_netns" \
+            "$PWD/target/debug/lovpn-server" "$PWD/target/debug/lovpn"
+          sudo timeout 240 unshare --user --map-root-user --net --pid --fork --mount-proc -- \
+            python3 tests/networking/server_e2e.py "$host_netns" \
+            "$PWD/target/debug/lovpn-server" "$PWD/target/debug/lovpn"
+          sudo timeout 300 unshare --user --map-root-user --net --pid --fork --mount-proc -- \
+            python3 tests/networking/client_e2e.py "$host_netns" \
+            "$PWD/target/debug/lovpn-server" "$PWD/target/debug/lovpn" \
+            "$PWD/target/debug/lovpn-clientd"
+      - if: runner.os == 'Linux'
+        name: Installer staging smoke test
+        run: ./scripts/test-install.sh
+
+  dependencies:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.97.1 --profile minimal
+      - run: cargo install --locked cargo-audit --version 0.22.2
+      - run: cargo audit --deny warnings
+      - run: cargo install --locked cargo-deny --version 0.20.2
+      - run: cargo deny --locked check
+
+  window:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Browser test tooling (test-only, never shipped)
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install playwright==1.63.0
+          .venv/bin/playwright install --with-deps chromium-headless-shell
+          npm install --prefix .axe axe-core@4.14.0
+      - run: scripts/test-ui.sh
+
+  reproducible:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Two builds, same hashes
+        run: ./scripts/repro-check.sh
+      - name: SBOM
+        run: ./scripts/sbom.py -o sbom-linux.json
+
+
+  windows-reproducible:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Two builds, same hashes
+        run: ./scripts/repro-check.ps1

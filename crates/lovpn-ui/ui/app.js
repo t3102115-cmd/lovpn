@@ -48,7 +48,6 @@ async function loadLocale() {
   document.getElementById('skip-link').textContent = t('skip');
   document.getElementById('nav-root').setAttribute('aria-label', t('nav.label'));
   document.getElementById('rail-note').textContent = t('rail.note');
-  document.getElementById('noscript-text').textContent = t('noscript');
 }
 
 /* ---------- small helpers ---------- */
@@ -402,8 +401,6 @@ function viewDevices() {
       h('div', { class: 'row-actions' }, button(t('devices.show'), { fid: 'key:' + p.name }, async () => { try { const r = await api('device', { name: p.name }); out.replaceChildren(h('span', { class: 'mono' }, r.public_key)); out.dataset.key = r.public_key; } catch (e) { out.textContent = describe(e); } }))));
   }
   root.append(list.children.length ? list : h('p', { class: 'muted' }, t('devices.none')));
-  const [a, b] = t('devices.other.body', { create: '\u0001', revoke: '\u0002', rotate: '\u0003' }).split(/[\u0001\u0002\u0003]/).length === 4 ? [null, null] : [null, null];
-  void a; void b;
   const parts = t('devices.other.body', { create: '\u0001', revoke: '\u0002', rotate: '\u0003' }).split(/([\u0001\u0002\u0003])/);
   const names = { '\u0001': 'lovpn-server peer create', '\u0002': 'peer revoke', '\u0003': 'peer rotate' };
   root.append(h('h2', null, t('devices.other.title')), h('p', null, parts.map(x => (names[x] ? h('code', null, names[x]) : x))));
@@ -539,6 +536,7 @@ let lastKey = '';
 async function render(opts) {
   const focusId = document.activeElement?.getAttribute?.('data-fid');
   const hadFocusInMain = document.getElementById('main').contains(document.activeElement);
+  const onHeading = document.activeElement?.tagName === 'H1' && hadFocusInMain;
   const nav = document.getElementById('nav');
   nav.replaceChildren(...SECTIONS.map(id => h('li', null, h('a', { href: '#/' + id, 'aria-current': app.view === id ? 'page' : false }, t('nav.' + id)))));
   const main = document.getElementById('main');
@@ -551,6 +549,9 @@ async function render(opts) {
     lastKey = app.view;
     document.title = t('title.page', { section: t('nav.' + app.view) });
     if (opts && opts.moveFocus && heading) heading.focus();
+  } else if (onHeading && heading) {
+    // The user parked on the heading and a refresh replaced it: keep them there.
+    heading.focus();
   } else if (focusId && hadFocusInMain) {
     // The polling re-render replaced the buttons; put keyboard focus back where it was.
     const again = [...main.querySelectorAll('[data-fid]')].find(el => el.getAttribute('data-fid') === focusId);

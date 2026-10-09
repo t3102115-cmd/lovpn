@@ -234,7 +234,7 @@
  "adv.todo.split": "Split-Tunneling",
  "adv.todo.split.d": "Der gesamte Datenverkehr geht durch den Tunnel.",
  "adv.todo.lan": "Zugriff auf das lokale Netzwerk während der Verbindung",
- "adv.todo.lan.d": "Lokale Geräte wie Drucker sind erreichbar nicht, solange der Tunnel steht.",
+ "adv.todo.lan.d": "Lokale Geräte wie Drucker sind nicht erreichbar, solange der Tunnel steht.",
  "note.title": "LoVPN",
  "note.protected": "Du bist wieder geschützt.",
  "note.degraded": "Der Schutz ist unvollständig. Öffne LoVPN für Details.",

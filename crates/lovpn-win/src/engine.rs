@@ -313,10 +313,8 @@ impl Engine {
         endpoint: Ipv4Addr,
         tunnel: Option<u64>,
     ) -> Result<(), ClientError> {
-        let egress = match ip::best_egress(endpoint) {
-            Ok(e) if Some(e.luid) != tunnel => e,
-            _ => ip::physical_default(tunnel)?.ok_or(ClientError::CommandFailed("no-uplink"))?,
-        };
+        let egress = ip::endpoint_egress(endpoint, tunnel)?
+            .ok_or(ClientError::CommandFailed("no-uplink"))?;
         let route = EndpointRoute {
             luid: egress.luid,
             destination: endpoint,

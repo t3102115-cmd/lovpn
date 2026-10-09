@@ -3,6 +3,38 @@
 All notable changes to this pre-release project are recorded here. There is no
 production release yet.
 
+## Unreleased: release hardening (M6)
+
+- Added in the completion pass: packet-capture leak matrix in the client e2e, property tests for
+  system-tool parsers, key decoding, the broker/pipe request decoder, Windows record decoding,
+  `derive_state` and the monitor schedule; `scripts/{sign,verify}-release.sh`;
+  `scripts/privilege-review.sh`; `scripts/repro-check.ps1` and CI `windows-reproducible`;
+  `release.yml` provenance workflow; [update design](docs/update-design.md) (not implemented).
+
+- Property tests for the enrollment parsers, the window's HTTP parser and the firewall
+  compilers (hostile input never panics, never exceeds limits, never leaves LoVPN's tables).
+- `scripts/repro-check.sh` (five Linux binaries rebuilt twice: identical hashes), `scripts/sbom.py`
+  (CycloneDX), CI job `reproducible`; `scripts/measure-performance.sh` and
+  [docs/performance.md](docs/performance.md) (measured on one machine over veth; no real-network claims).
+- Not done: update verification (no updater exists), key custody, independent review,
+  coverage-guided fuzzing. See [docs/release.md](docs/release.md).
+
+## Unreleased: window localization, accessibility, notifications and Linux tray (M5)
+
+- `lovpn-ui`: English and German catalogs (`/i18n/<lang>.json`, parity-tested), language
+  setting, focus management, polite status announcements, dialog labelling, forced-colors
+  support, darker light-theme green for AA contrast, opt-in notifications (unfocused only,
+  after two sightings, no identifiers).
+- `lovpn-tray` (new, Linux): StatusNotifierItem + freedesktop notifications; new dependencies
+  `ksni` 0.3.6 and `zbus` 5.19.0 (async-io backend, no tokio) with their transitive crates; `ksni` is Unlicense (public-domain dedication), now on the `deny.toml` allow list. `cargo audit` and `cargo deny` pass.
+- `tests/ui/browser`: 93 Playwright checks and an axe-core sweep (0 violations); `scripts/test-ui.sh`
+  and an optional CI job. Installer stages `lovpn-tray`.
+- Windows tray (`lovpn-tray.exe`, Win32 notification area, shape-coded icons, in the MSI
+  sources), run on the Windows 11 VM desktop with the real service (`tests/windows/tray-e2e.ps1`).
+- Orca run (`tests/ui/screenreader/`) found two accessibility bugs, fixed: `role="status"` is
+  never spoken by Orca (now a plain `aria-live` region) and refresh dropped focus from the heading.
+- Not done: NVDA/VoiceOver, other browsers in CI, more languages, MSI build.
+
 ## Unreleased: online enrollment (M2c)
 
 - Added `lovpn-enroll`: one-time token format (256-bit secret, SHA-256 digest at rest,

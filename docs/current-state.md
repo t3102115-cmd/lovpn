@@ -24,7 +24,7 @@ The repository also contains Linux packaging, staged installer smoke tests,
 disposable namespace tests, CI for Linux and Windows Rust checks, and design and
 security documentation. There is a Windows client service and a window
 ([windows.md](windows.md), [ui.md](ui.md)). Online enrollment (pinned TLS, one-time tokens) is implemented for the Linux server and
-the CLI ([enrollment.md](enrollment.md)). There is no tray icon, updater, or cloud
+the CLI ([enrollment.md](enrollment.md)). There is a tray (`lovpn-tray`, Linux and Windows), no updater, and no cloud
 dependency.
 
 ## Implemented and working in this tree
@@ -99,7 +99,7 @@ dependency.
 
 ## Missing
 
-- Tray icon and an accessibility audit of the window (the window itself exists).
+- NVDA/JAWS/VoiceOver audit of the window (axe and a partial Orca run are done); proof of the Windows tray menu.
 - Online enrollment: QR/URI encoding and a rotation overlap period (the rest is implemented
   and was run on real systemd units and in the Windows VM).
 - Server key rotation and optional PSK lifecycle.

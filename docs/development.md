@@ -272,11 +272,12 @@ command inside that namespace.
 - Windows runtime: `tests/windows/vm-e2e.ps1` 34/34 and `tests/windows/vm-recovery.ps1`
   13/13 on the final build (run as a SYSTEM scheduled task because a strict kill switch
   cuts any SSH session; a SYSTEM watchdog task runs `lovpn-service release`).
-- Window: 9 unit tests (HTTP parser limits and smuggling cases, session secret, Host/Origin,
-  sanitizer with hostile input); manual browser review of all states against a test double
-  (`tests/ui/fake_broker.py`, never shipped) and against the real Windows service.
+- Window: 12 unit tests (HTTP parser, session secret, Host/Origin, sanitizer, language
+  catalog parity); 93 browser checks plus an axe-core audit (0 violations) in headless
+  Chromium against a test double (`tests/ui/`, never shipped; `scripts/test-ui.sh`); the real
+  Windows service by hand. Tray: 8 unit tests, one live run on KDE Plasma and one on the Windows VM desktop.
 - Not run: reboot persistence, sleep/resume, real network-change events, other Windows
-  builds or hardware, screen-reader testing, automated browser tests, fuzzing, real
+  builds or hardware, screen-reader testing, browsers other than Chromium, fuzzing, real
   systemd service operation on Linux.
 
 Failures found by this testing and fixed are listed in [windows.md](windows.md#evidence);

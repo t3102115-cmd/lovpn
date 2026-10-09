@@ -87,13 +87,43 @@ seals it with DPAPI (machine scope) and never shows it. `--key-file` is Linux-on
 `lovpn reset` and `lovpn disconnect --release-kill-switch` do the same through the service.
 Uninstalling the service does not touch the filters, on purpose.
 
-## Evidence
+## Current Phase 4 verification
+
+Phase 4 is **not done**. Historical evidence below is not a current release pass.
+Implemented additions include boot-time IPv4/IPv6 blocks, service-associated WFP policy,
+semantic filter verification, network notifications and additive NRPT `dns.scopes` with
+durable restoration journals. MSI sources and compatibility gates are documented in
+[packaging/windows/README.md](../packaging/windows/README.md). The current installer wrapper
+requires `-MsiPath`; the `-SourceDir` examples above describe the historical installer.
+
+Native Windows config/client/Windows tests passed, including DPAPI, ACLs, profile import,
+journal persistence and locking. The elevated real NRPT lifecycle passed. All three
+installer scripts passed PowerShell parser checks. The isolated elevated WFP roundtrip
+passed installation/semantic verification of runtime and boot filters, failed-transaction
+preservation, same-name action-tamper detection and cleanup.
+
+**Latest VM end-to-end result: zero failures, cleanup and recovery successful.**
+The `final04` SYSTEM-task run on 2026-10-09 passed tunnel/handshake, DNS positive controls,
+strict disconnect blocking, reconnect, SCM crash recovery, endpoint/adapter/route repair,
+invalid profile rejection, physical-NIC capture analysis and explicit policy release.
+The VM retained structured `result.json` and `recovery.json` receipts under
+`C:\ProgramData\LoVPN-E2E\final04`. Earlier failures are not relabelled as passes:
+fixes addressed indexed WFP observations, packet parsing, JSON array serialization,
+process exit-code capture and a backwards VM clock that interfered with handshakes.
+
+WiX 4.0.6 successfully compiled base 0.1.10 and test-hook upgrade 0.1.11 MSI packages
+on the VM. Native syntax validation passed for the lifecycle and MSI gate scripts.
+Reboot/pre-BFE handoff, sleep/resume, actual uplink changes and MSI installation/
+upgrade/rollback remain unverified. The VM advertises S1 only; external continuous
+boot capture is required to prove the pre-BFE gap, not merely postboot status.
+
+## Historical first-slice evidence
 
 All run on Windows 11 Pro 10.0.26200 (VM), service installed with the installer above,
 against a real `lovpn-server` + broker running in a disposable user/network namespace
 (`tests/windows/lab-server.sh`). The profile was enrolled through the real offline flow.
 
-`tests/windows/vm-e2e.ps1` (34 checks, 0 failures on the final build) covers: connect to
+The historical `tests/windows/vm-e2e.ps1` run (34 checks, 0 failures on an earlier build) covered: connect to
 *Protected* with every check observed; a tunnel-only decoy address reachable and system DNS
 answered by the tunnel resolver; IPv6 blocked; MTU applied; strict kill switch blocking
 internet, decoy and DNS after disconnect; reconnect from blocked; **service killed** (SCM
@@ -137,4 +167,4 @@ check mis-fired for an on-link server and re-"repaired" every 3 s.
 - Same product gaps as Linux: IPv4 full tunnel only, IPv6 blocked rather than tunnelled, no
   split tunnel, no LAN access while connected, no updater. Online enrollment exists in the CLI
   (`lovpn enroll --identity`) but has only been compiled for Windows, not run there.
-- No tray icon and no MSI. Installation is the PowerShell script.
+- The tray icon (`lovpn-tray.exe`, [ui.md](ui.md)) has run on the VM desktop only and is in the MSI sources, but the MSI containing it was not built. MSI sources exist, but no built and runtime-tested MSI is evidenced.

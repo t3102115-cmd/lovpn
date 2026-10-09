@@ -11,7 +11,9 @@ if (-not $ConfirmNrptV2Build) { throw 'Build current source and review NRPT v2 s
 $wixVersion = (& wix --version | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or $wixVersion -notmatch '^4\.0\.6(?:\+|$)') { throw 'This build requires pinned WiX 4.0.6 and matching Util extension.' }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw 'Use a three-part MSI version.' }
-foreach ($file in @('lovpn.exe','lovpn-service.exe','lovpn-ui.exe')) {
+$parts = $Version.Split('.') | ForEach-Object { [uint64]$_ }
+if ($parts[0] -gt 255 -or $parts[1] -gt 255 -or $parts[2] -gt 65535) { throw 'MSI version limits are 255.255.65535.' }
+foreach ($file in @('lovpn.exe','lovpn-service.exe','lovpn-ui.exe','lovpn-tray.exe')) {
     if (-not (Test-Path (Join-Path $SourceDir $file) -PathType Leaf)) { throw "Missing $file; run build-windows.ps1 natively." }
 }
 $hash = (Get-FileHash -LiteralPath $DriverDll -Algorithm SHA256).Hash.ToLowerInvariant()

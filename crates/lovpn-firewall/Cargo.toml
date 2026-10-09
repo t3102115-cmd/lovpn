@@ -12,3 +12,6 @@ lovpn-config = { path = "../lovpn-config", version = "=0.1.0-dev.1" }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

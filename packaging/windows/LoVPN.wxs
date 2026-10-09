@@ -28,6 +28,9 @@
         <Component Id="UiComponent" Guid="BC59C73C-067D-4615-B209-4CFF80D7B59F" Bitness="always64">
           <File Id="UiExe" Source="$(var.SourceDir)\lovpn-ui.exe" KeyPath="yes" />
         </Component>
+        <Component Id="TrayComponent" Guid="01A31581-204E-473E-B860-6E3D20B3455D" Bitness="always64">
+          <File Id="TrayExe" Source="$(var.SourceDir)\lovpn-tray.exe" KeyPath="yes" />
+        </Component>
         <Component Id="DriverComponent" Guid="39EC814B-19C5-49EE-B23F-6A663AB44D27" Bitness="always64">
           <File Id="DriverDll" Source="$(var.DriverDll)" Name="wireguard.dll" KeyPath="yes" />
         </Component>
@@ -56,7 +59,8 @@
       <?endif ?>
     </InstallExecuteSequence>
     <Feature Id="Client" Title="LoVPN Client">
-      <ComponentRef Id="ServiceComponent" /><ComponentRef Id="CliComponent" /><ComponentRef Id="UiComponent" /><ComponentRef Id="DriverComponent" /><ComponentRef Id="LicenseComponent" /><ComponentRef Id="CompatibilityMarker" />
+      <ComponentRef Id="ServiceComponent" /><ComponentRef Id="CliComponent" /><ComponentRef Id="UiComponent" />
+      <ComponentRef Id="TrayComponent" /><ComponentRef Id="DriverComponent" /><ComponentRef Id="LicenseComponent" /><ComponentRef Id="CompatibilityMarker" />
     </Feature>
   </Package>
 </Wix>

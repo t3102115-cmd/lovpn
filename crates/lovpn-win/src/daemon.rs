@@ -26,7 +26,7 @@ const MAX_REQUEST_BYTES: usize = 96 * 1024;
 const LOG_ROTATE_BYTES: u64 = 1024 * 1024;
 #[path = "lifecycle.rs"]
 mod lifecycle;
-use lifecycle::{MONITOR_INTERVAL, monitor_gap};
+use lifecycle::{MonitorSchedule, monitor_gap};
 
 /// Installed by `lovpn-service install`; only administrators can write it.
 #[derive(Deserialize, Serialize)]
@@ -398,7 +398,7 @@ fn spawn_monitor(
     let (engine, signals, logger) = (Arc::clone(engine), Arc::clone(signals), Arc::clone(logger));
     std::thread::spawn(move || {
         let mut last = SystemTime::now();
-        let mut next_poll = Instant::now() + MONITOR_INTERVAL;
+        let mut schedule = MonitorSchedule::new(Instant::now());
         while !signals.stop.load(Ordering::SeqCst) {
             // Short interruptible wait bounds stop/resume/network-event latency.
             std::thread::sleep(Duration::from_millis(100));
@@ -407,14 +407,13 @@ fn spawn_monitor(
             }
             let network_changed = signals.network_changed.swap(false, Ordering::SeqCst);
             let power_resumed = signals.resumed.swap(false, Ordering::SeqCst);
-            if !network_changed && !power_resumed && Instant::now() < next_poll {
+            if !schedule.due(Instant::now(), network_changed, power_resumed) {
                 continue;
             }
             let now = SystemTime::now();
             // `Instant` does not advance during suspend on Windows, so compare with wall time.
             let stalled = monitor_gap(last, now);
             last = now;
-            next_poll = Instant::now() + MONITOR_INTERVAL;
             // Network changes request observation/route repair, not unconditional reconnect:
             // rebuilding the tunnel emits its own route/interface notifications.
             let resumed = power_resumed || stalled;
@@ -422,6 +421,10 @@ fn spawn_monitor(
                 Ok(mut e) => e.tick(resumed),
                 Err(_) => continue,
             };
+            schedule.completed(
+                Instant::now(),
+                !matches!(report.action, TickAction::Healthy | TickAction::Idle),
+            );
             if !matches!(report.action, TickAction::Healthy | TickAction::Idle) {
                 logger.log(
                     "monitor",

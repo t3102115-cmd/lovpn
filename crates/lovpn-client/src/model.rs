@@ -171,4 +171,67 @@ mod tests {
         ];
         assert_eq!(derive_state(&also_broken, true, true), State::Degraded);
     }
+
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+
+        fn status() -> impl Strategy<Value = CheckStatus> {
+            prop_oneof![
+                Just(CheckStatus::Ok),
+                Just(CheckStatus::Fail),
+                Just(CheckStatus::Unknown),
+                Just(CheckStatus::Off),
+            ]
+        }
+
+        fn checks() -> impl Strategy<Value = Vec<Check>> {
+            proptest::collection::vec(
+                (
+                    prop_oneof![
+                        Just("handshake"),
+                        Just("dns"),
+                        Just("ipv6"),
+                        Just("firewall")
+                    ],
+                    status(),
+                )
+                    .prop_map(|(name, status)| c(name, status)),
+                0..8,
+            )
+        }
+
+        proptest! {
+            /// `Protected` is only ever the answer when nothing failed and nothing was unobserved.
+            #[test]
+            fn protected_implies_every_check_ok_or_off(
+                checks in checks(), fresh in any::<bool>(), recent in any::<bool>()
+            ) {
+                if derive_state(&checks, fresh, recent) == State::Protected {
+                    prop_assert!(checks.iter().all(|c| matches!(c.status, CheckStatus::Ok | CheckStatus::Off)));
+                }
+            }
+
+            /// Making any one check worse never makes the state read better.
+            #[test]
+            fn degrading_a_check_never_improves_the_state(
+                mut checks in checks(), index in any::<prop::sample::Index>(),
+                fresh in any::<bool>(), recent in any::<bool>()
+            ) {
+                prop_assume!(!checks.is_empty());
+                let rank = |s: State| match s {
+                    State::Protected => 0,
+                    State::Connecting => 1,
+                    State::Unknown => 2,
+                    _ => 3,
+                };
+                let before = derive_state(&checks, fresh, recent);
+                let at = index.index(checks.len());
+                if checks[at].name != "handshake" {
+                    checks[at].status = CheckStatus::Fail;
+                    prop_assert!(rank(derive_state(&checks, fresh, recent)) >= rank(before));
+                }
+            }
+        }
+    }
 }

@@ -79,6 +79,24 @@ pub fn best_egress(destination: Ipv4Addr) -> Result<Egress, WinError> {
     })
 }
 
+/// Gateway endpoints follow the same physical default used by observation. An
+/// existing /32 host route must not pin repair to the old uplink. On-link endpoints
+/// retain their direct route instead of being forced through a default gateway.
+pub fn endpoint_egress(
+    destination: Ipv4Addr,
+    tunnel: Option<u64>,
+) -> Result<Option<Egress>, WinError> {
+    let best = best_egress(destination)
+        .ok()
+        .filter(|e| Some(e.luid) != tunnel);
+    if let Some(best) = best
+        && best.next_hop.is_none()
+    {
+        return Ok(Some(best));
+    }
+    Ok(physical_default(tunnel)?.or(best))
+}
+
 pub fn add_address(interface: u64, addr: Ipv4Addr, prefix: u8) -> Result<(), WinError> {
     // SAFETY: plain data, initialized by the call below.
     let mut row: MIB_UNICASTIPADDRESS_ROW = unsafe { std::mem::zeroed() };
@@ -262,7 +280,7 @@ pub fn physical_default(exclude_luid: Option<u64>) -> Result<Option<Egress>, Win
             r
         };
         // SAFETY: valid row with family and LUID set.
-        if unsafe { GetIpInterfaceEntry(&mut interface) } != NO_ERROR {
+        if unsafe { GetIpInterfaceEntry(&mut interface) } != NO_ERROR || !interface.Connected {
             continue;
         }
         let metric = row.Metric.saturating_add(interface.Metric);
