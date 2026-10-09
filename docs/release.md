@@ -87,3 +87,14 @@ and tokens, the broker/pipe request decoder, `ip -j` output parsers and key text
 each (about 12 million executions in total) found no crash. CI job `fuzz` repeats it. This is a
 short smoke run, not a long campaign; a long run before each release is recommended. Proptest
 (`crates/*/tests`) still covers the same parsers plus firewall compilation.
+
+## First tagged run (v0.1.0-dev.1)
+
+Tag `v0.1.0-dev.1` ran `release.yml` on GitHub: the reproducibility gate, the build and the SBOM in
+a read-only job, then provenance attestation in a separate job (run 37960122327, both succeeded).
+`gh attestation verify <file> --repo t3102115-cmd/lovpn` accepts the downloaded `lovpn` binary.
+The tag is a development pre-release: **no maintainer signature exists yet** (no release key has
+been created; see the custody procedure above), so users have provenance but not an approval.
+GitHub-hosted CI also runs every job (`foundation-checks`) green, including Firefox browser tests,
+fuzzing for 60 s per target and Linux and Windows reproducibility. Five `lovpn-win` store tests are
+skipped on the hosted Windows runner (it is not elevated) and run on the Windows VM gate.

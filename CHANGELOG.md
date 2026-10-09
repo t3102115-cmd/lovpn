@@ -5,6 +5,10 @@ production release yet.
 
 ## Unreleased: release hardening (M6)
 
+- Tagged `v0.1.0-dev.1`: `release.yml` and every CI job ran green on GitHub; provenance attestation
+  verified with `gh attestation verify`. No maintainer signature yet. Release manifests now carry a
+  version and expiry (`sign-release.sh`/`verify-release.sh`).
+
 - Added in the completion pass: packet-capture leak matrix in the client e2e, property tests for
   system-tool parsers, key decoding, the broker/pipe request decoder, Windows record decoding,
   `derive_state` and the monitor schedule; `scripts/{sign,verify}-release.sh`;
