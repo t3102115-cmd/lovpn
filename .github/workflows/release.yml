@@ -30,7 +30,6 @@ jobs:
           mkdir dist
           for b in lovpn-server lovpn lovpn-clientd lovpn-ui lovpn-tray; do cp "target/release/$b" dist/; done
           cp sbom-linux.json dist/
-          (cd dist && sha256sum -- * > SHA256SUMS)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: lovpn-linux

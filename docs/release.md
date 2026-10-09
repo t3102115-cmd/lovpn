@@ -50,19 +50,34 @@ Not done: `cargo-fuzz` (needs nightly, not installed), fuzzing the WireGuard con
 broker JSON protocol and the Windows pipe protocol, state-machine property tests, and the
 DNS/IPv6/routing leak matrix beyond the existing namespace and VM gates.
 
-## Signing a release (tooling only)
+## Signing a release
 
-`scripts/sign-release.sh <key> <outdir> <files…>` writes `SHA256SUMS` and signs it with
-`ssh-keygen -Y sign` (namespace `lovpn-release`). `scripts/verify-release.sh <allowed_signers> <dir>`
-checks the signature against a pinned signer file and then every hash. Both use only standard
-tools; no bespoke cryptography. Tested with a throwaway key: a modified file and a modified
-`SHA256SUMS` are both rejected.
+`scripts/sign-release.sh <key> <outdir> <version> <valid-days> <files…>` writes `MANIFEST` (a
+`version:` line, an `expires:` date, then `sha256sum` lines) and signs all of it with
+`ssh-keygen -Y sign` (namespace `lovpn-release`). `scripts/verify-release.sh <allowed_signers>
+<dir> [min-version]` refuses a bad signature, an expired manifest, a version below `min-version`
+(the script keeps no state: pass the highest version you ever accepted), a changed file and any
+file the manifest does not list. Standard tools only; no bespoke cryptography. Tested with a
+throwaway key (valid, rollback, extra file, tampered file, edited manifest, expired).
 
-Not decided by code, and therefore not done: who holds the release key, whether it lives on
-hardware, how it is rotated or revoked, and how users obtain the pinned `allowed_signers`
-out of band. There is still no updater (REL-01): update verification (offline roots,
-thresholds, expiry, anti-rollback) must be designed and independently reviewed before any
-auto-update ships. Until then, updates are manual downloads checked with the script above.
+### Key custody procedure (maintainer steps)
+
+1. Generate the release key on a hardware token, offline machine: `ssh-keygen -t ed25519-sk
+   -C lovpn-release -f lovpn-release` (touch required). Keep a second token as backup in a
+   different place. Never put the key in CI, a cloud drive or chat.
+2. Publish only the public part as `allowed_signers`: `lovpn-release <contents of lovpn-release.pub>`.
+   Put it in the repository **and** on a second channel (project website, a signed git tag, a
+   printed fingerprint) so users can compare. Users pin it on first install.
+3. Sign each release on the offline machine: build artifacts from the tagged CI run, download
+   them, run `sign-release.sh` with the next integer version and about 90 days, attach
+   `MANIFEST`, `MANIFEST.sig` and the artifacts to the release.
+4. Rotation or loss: generate a new key, publish its public part on both channels with a note
+   signed by the old key if it still exists, and announce which version is the first signed by the
+   new key. Revoke by removing the old line from `allowed_signers` and raising the minimum version.
+
+CI attests *where* a binary was built (build provenance); the maintainer signature says *who
+approved it*. Neither replaces the other. There is still no updater (REL-01): see
+[update-design.md](update-design.md).
 
 ## Fuzzing status
 
